@@ -1,0 +1,2 @@
+html, body, #app { min-height: 100%; margin: 0; }
+.page-shell { min-height: 100vh; box-sizing: border-box; }

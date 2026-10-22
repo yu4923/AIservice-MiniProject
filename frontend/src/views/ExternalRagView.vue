@@ -1,0 +1,255 @@
+<script>
+import { reactive } from 'vue'
+import JsonOutput from '../components/JsonOutput.vue'
+import { externalRagUrl } from '../api/config.js'
+import { requestJson, postJson, postForm } from '../api/http.js'
+  function normalizeBaseUrl(v){
+    if(!v) return '';
+    v = String(v).trim();
+    if(v.startsWith('file://')) v = v.replace(/^file:\/\//,'http://');
+    if(!/^https?:\/\//i.test(v)) v = 'http://' + v.replace(/^\/\//,'');
+    return v.replace(/\/+$/,'');
+  }
+
+
+export default {
+    components: { JsonOutput },
+    data(){
+      const saved = localStorage.getItem('closed_rag_base_url');
+      const guess = (saved ? saved :
+        (location.origin === 'null' || location.protocol === 'file:') ? externalRagUrl
+          : (location.hostname === 'localhost' || location.hostname === '127.0.0.1') ? externalRagUrl
+          : location.origin);
+      return {
+        baseUrl: normalizeBaseUrl(guess),
+        debug: false,
+        loading: reactive({ topic:false, paper:false, query:false }),
+        topic: reactive({ text:'', result:null }),
+        pdf: reactive({ file:null, result:null }),
+        paperProgress: 0,
+        rq: reactive({ prompt:'', source:'pdf', top_k:5, result:null }),
+      }
+    },
+    watch:{
+      baseUrl(v){
+        const n = normalizeBaseUrl(v);
+        this.$nextTick(()=> this.baseUrl = n);
+        localStorage.setItem('closed_rag_base_url', n);
+      }
+    },
+    methods:{
+      pretty(o){ return typeof o === 'string' ? o : JSON.stringify(o, null, 2); },
+      toggleDebug(){ this.debug = !this.debug; },
+      human(n){ if(n<1024) return n+' B'; if(n<1024*1024) return (n/1024).toFixed(1)+' KB'; return (n/1024/1024).toFixed(1)+' MB'; },
+
+      async _postJson(path, body){
+        const { data, latency } = await postJson(this.baseUrl, path, body);
+        data.__latency_ms = latency;
+        return data;
+      },
+      async _postForm(path, body){
+        const { data, latency } = await postForm(this.baseUrl, path, body);
+        data.__latency_ms = latency;
+        return data;
+      },
+
+      // 🔁 /upload-topic 은 쿼리스트링 방식 (Swagger와 동일)
+      async postUploadTopic(){
+        this.loading.topic = true; this.topic.result = null;
+        try{
+          const topic = (this.topic.text || '').trim();
+          if(!topic) throw new Error('주제를 입력하세요.');
+          const { data, latency } = await requestJson(this.baseUrl, `/upload-topic?topic=${encodeURIComponent(topic)}`, { method: 'POST' });
+          data.__latency_ms = latency;
+          this.topic.result = data;
+        }catch(e){
+          this.topic.result = { error: e.message, payload: { topic: this.topic.text } };
+        }finally{
+          this.loading.topic = false;
+        }
+      },
+
+      onPickPdf(e){ const f = e.target.files?.[0]; this.pdf.file = f || null; this.pdf.result = null; this.paperProgress = 0; },
+      clearPdf(){ this.pdf.file = null; this.pdf.result = null; this.paperProgress = 0; },
+
+      async postUploadPaper(){
+        if(!this.pdf.file) return;
+        this.loading.paper = true; this.pdf.result = null; this.paperProgress = 30;
+        try{
+          const fd = new FormData();
+          fd.append('file', this.pdf.file, this.pdf.file.name);
+          this.paperProgress = 55;
+          const data = await this._postForm('/upload-paper', fd);
+          this.paperProgress = 100;
+          this.pdf.result = data;
+        }catch(e){
+          this.pdf.result = { error: e.message, file: this.pdf.file?.name };
+        }finally{ setTimeout(()=>{ this.loading.paper = false; this.paperProgress = 0; }, 600); }
+      },
+
+      async postRagQuery(){
+        this.loading.query = true; this.rq.result = null;
+        const payload = {
+          prompt: (this.rq.prompt||'').trim(),
+          source: this.rq.source,
+          top_k: Number(this.rq.top_k)||5
+        };
+        try{
+          if(!payload.prompt) throw new Error('prompt를 입력하세요.');
+          const data = await this._postJson('/rag-query', payload);
+          this.rq.result = data;
+        }catch(e){
+          this.rq.result = { error: e.message, payload };
+        }finally{ this.loading.query = false; }
+      }
+    }
+  }
+</script>
+
+<template>
+<div class="page-shell">
+<header>
+  <div class="wrap brand">
+    <div class="dot"></div><h1>RAG 기반 Closed Source LLM API Console</h1>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="grid">
+
+    <!-- 환경 -->
+    <section class="panel col-12">
+      <h2>환경 설정 <span class="tag">BASE_URL</span></h2>
+      <div class="row">
+        <div style="flex:1">
+          <label>API BASE_URL</label>
+          <input type="text" v-model="baseUrl" placeholder="예) http://localhost:8001" />
+        </div>
+        <button class="btn secondary" @click="toggleDebug">{{ debug ? '디버그 숨기기' : '디버그 표시' }}</button>
+      </div>
+      <p class="desc">이 콘솔은 `POST /upload-topic`, `POST /upload-paper`, `POST /rag-query` 를 호출합니다. 프론트가 http로 열리고, 백엔드 CORS가 허용되어 있어야 합니다.</p>
+    </section>
+
+    <!-- 1. 업로드: Topic -->
+    <section class="panel col-6">
+      <h2>웹 주제 업로드 <span class="tag">POST /upload-topic</span></h2>
+      <p class="desc">주제를 입력하면 백엔드가 웹 검색→임베딩→벡터DB 저장을 수행합니다.</p>
+      <div class="row">
+        <div style="flex:1">
+          <label>topic</label>
+          <input type="text" v-model="topic.text" placeholder="예) Retrieval-Augmented Generation 활용사례" />
+        </div>
+      </div>
+      <div class="row">
+        <button class="btn" @click="postUploadTopic" :disabled="loading.topic">업로드 실행</button>
+      </div>
+      <div class="progress" v-if="loading.topic"><div class="bar" :style="{width:'85%'}"></div></div>
+      <JsonOutput v-if="topic.result" :value="topic.result" />
+    </section>
+
+    <!-- 2. 업로드: PDF -->
+    <section class="panel col-6">
+      <h2>PDF 업로드 <span class="tag">POST /upload-paper</span></h2>
+      <p class="desc">선택한 PDF 파일을 서버로 업로드하면 임베딩되어 벡터DB에 저장됩니다.</p>
+      <div class="row">
+        <div style="flex:1">
+          <label>PDF 파일</label>
+          <input type="file" accept="application/pdf" @change="onPickPdf" />
+          <div class="muted" v-if="pdf.file">선택됨: {{ pdf.file.name }} ({{ human(pdf.file.size) }})</div>
+        </div>
+      </div>
+      <div class="row">
+        <button class="btn" @click="postUploadPaper" :disabled="loading.paper || !pdf.file">업로드 실행</button>
+        <button class="btn secondary" @click="clearPdf" :disabled="!pdf.file">선택 해제</button>
+      </div>
+      <div class="progress" v-if="loading.paper"><div class="bar" :style="{width: paperProgress+'%'}"></div></div>
+      <JsonOutput v-if="pdf.result" :value="pdf.result" />
+    </section>
+
+    <!-- 3. RAG Query -->
+    <section class="panel col-12">
+      <h2>질의/응답 <span class="tag">POST /rag-query</span></h2>
+      <p class="desc">선택한 소스(pdf|web)의 벡터DB에서 관련 문서를 검색하고, 프롬프트에 대한 응답을 생성합니다.</p>
+      <div class="row">
+        <div style="flex:1">
+          <label>prompt</label>
+          <textarea v-model="rq.prompt" placeholder="예) 업로드한 논문의 핵심 기여를 3줄로 요약해줘."></textarea>
+        </div>
+      </div>
+      <div class="row">
+        <div style="width:200px">
+          <label>source</label>
+          <select v-model="rq.source">
+            <option value="pdf">pdf</option>
+            <option value="web">web</option>
+          </select>
+        </div>
+        <div style="width:160px">
+          <label>top_k</label>
+          <input type="number" v-model.number="rq.top_k" min="1" max="50"/>
+        </div>
+        <div class="row" style="align-items:end">
+          <button class="btn" @click="postRagQuery" :disabled="loading.query">질의 실행</button>
+        </div>
+      </div>
+      <div class="progress" v-if="loading.query"><div class="bar" :style="{width:'70%'}"></div></div>
+
+      <div v-if="rq.result">
+        <div class="pill">Latency: {{ rq.result.__latency_ms || '—' }} ms</div>
+        <div class="pill">Hit count: {{ (rq.result.hits||[]).length }}</div>
+        <hr class="sep"/>
+        <div class="muted">Answer</div>
+        <pre class="code">{{ rq.result.answer || rq.result.output || pretty(rq.result) }}</pre>
+        <div class="muted" v-if="rq.result.hits && rq.result.hits.length">Top Docs</div>
+        <JsonOutput v-if="rq.result.hits && rq.result.hits.length" :value="rq.result.hits" />
+      </div>
+    </section>
+
+    <footer class="col-12">
+      © RAG Console • minimal & clean • Works with /upload-topic, /upload-paper, /rag-query
+    </footer>
+
+  </div>
+</main>
+</div>
+</template>
+
+<style scoped>
+
+    .page-shell{
+      --bg:#0b0e11; --panel:#12161c; --ink:#e6edf3; --muted:#9fb0c0;
+      --brand:#8ad6ff; --ok:#2ecc71; --warn:#f39c12; --err:#e74c3c; --line:#1e2732;
+    }
+    *{box-sizing:border-box}
+    .page-shell{margin:0;background:linear-gradient(180deg,#0b0e11,#0c1117);color:var(--ink);
+      font-family:ui-sans-serif,system-ui,AppleSDGothicNeo,Segoe UI,Roboto,Helvetica,Arial}
+    header{position:sticky;top:0;z-index:10;background:rgba(11,14,17,.7);backdrop-filter:blur(6px);
+      border-bottom:1px solid var(--line)}
+    .wrap{max-width:1100px;margin:0 auto;padding:22px}
+    .brand{display:flex;align-items:center;gap:10px}
+    .dot{width:12px;height:12px;border-radius:50%;background:var(--brand);box-shadow:0 0 16px var(--brand)}
+    h1{margin:0;font-size:20px;letter-spacing:.2px}
+    .grid{display:grid;gap:16px;grid-template-columns:repeat(12,1fr)}
+    .panel{grid-column:span 12;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 16px 18px}
+    @media (min-width:980px){.col-6{grid-column:span 6}}
+    h2{margin:0 0 10px;font-size:16px;font-weight:700;display:flex;gap:10px;align-items:center}
+    .tag{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+    p.desc{margin:6px 0 14px;color:var(--muted);font-size:13px;line-height:1.5}
+    .row{display:flex;gap:12px;flex-wrap:wrap}
+    label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
+    input[type="text"],input[type="number"],textarea,select{
+      width:100%;background:#0e1218;color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:14px;outline:none}
+    textarea{min-height:96px;resize:vertical}
+    .btn{appearance:none;border:none;background:linear-gradient(180deg,#287aff,#006bff);color:#fff;
+      padding:10px 14px;border-radius:10px;font-weight:700;cursor:pointer;box-shadow:0 6px 16px rgba(0,107,255,.3)}
+    .btn.secondary{background:#19202a;color:var(--ink);border:1px solid var(--line);box-shadow:none}
+    .btn[disabled]{opacity:.55;cursor:not-allowed}
+    pre.code{margin:10px 0 0;background:#0b1016;border:1px solid var(--line);border-radius:10px;padding:12px;overflow:auto;font-size:13px;line-height:1.5}
+    .pill{font-size:12px;padding:6px 10px;border-radius:999px;border:1px solid var(--line);color:var(--muted);background:#0e141b;margin-right:8px}
+    .ok{color:var(--ok)} .warn{color:var(--warn)} .err{color:var(--err)}
+    .muted{color:var(--muted)} hr.sep{border:0;border-top:1px dashed var(--line);margin:12px 0}
+    .progress{height:6px;background:#0e141b;border:1px solid var(--line);border-radius:999px;overflow:hidden}
+    .bar{height:100%;background:linear-gradient(90deg,#22c1c3,#3a7bd5);width:0%}
+    footer{color:var(--muted);font-size:12px;padding:24px 0 40px}
+
+</style>

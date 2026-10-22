@@ -1,0 +1,18 @@
+services:
+  app:
+    build:
+      context: ../services/voice
+      dockerfile: Dockerfile
+    ports:
+      - "8008:8008"
+    volumes:
+      - dockervenv:/app/.venv
+      - ../services/voice:/app
+      - ../data/voice/uploads:/data/voice/uploads
+    environment:
+      - VOICE_UPLOAD_DIR=/data/voice/uploads
+      - OPENAI_API_KEY=${OPENAI_API_KEY:?Set OPENAI_API_KEY}
+      - JWT_SECRET=${JWT_SECRET:?Set JWT_SECRET}
+
+volumes:
+  dockervenv:
