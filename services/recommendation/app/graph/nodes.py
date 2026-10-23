@@ -12,10 +12,38 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from app.graph.state import (
-    POLICY_SCOPES, AnswerDraft, ComparisonResult, Evidence, EvidenceDecision,
+    POLICY_CORPUS, POLICY_SCOPES, AnswerDraft, ComparisonResult, Evidence, EvidenceDecision,
     PolicyState, ScopeDecision, UserProfile,
 )
 from app.tools.youth_policy_api import ApiLookupResult
+
+
+# [설문 코드와 검색 문구를 분리]
+# 프론트의 employment 같은 원본 값은 바꾸지 않고, 검색에 사용할 한국어만 따로 만듭니다.
+INTEREST_LABELS = {
+    "employment": "취업", "housing": "주거", "education": "교육", "startup": "창업",
+}
+STATUS_LABELS = {
+    "student": "학생", "employed": "재직", "unemployed": "미취업",
+    "self_employed": "자영업", "freelance": "프리랜서",
+}
+
+
+def clean_search_keywords(values: list[str]) -> list[str]:
+    """API에 보낼 주제만 최대 네 개 남기고 unknown·none·중복·빈 값을 제거합니다."""
+    keywords = []
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        # 현재 GraphPolicyAgent가 쉼표로 검색어를 나누므로 같은 규칙으로 정리합니다.
+        for part in value.split(","):
+            keyword = part.strip()
+            if not keyword or keyword.lower() in {"unknown", "none"}:
+                continue
+            keyword = INTEREST_LABELS.get(keyword.lower(), keyword)[:100]
+            if keyword not in keywords:
+                keywords.append(keyword)
+    return keywords[:4]
 
 
 class Retriever(Protocol):
@@ -56,8 +84,12 @@ class LLMReasoner:
     async def scope(self, question):
         return await self._ask(ScopeDecision,
             "청년정책 안내 범위인지 판단하라. 정확한 키워드가 없어도 의미로 판단하라. "
-            "정책명만 묻거나 월세·취업·교육·창업 지원을 묻는 질문도 포함할 수 있다.",
-            {"question": question, "policy_scopes": POLICY_SCOPES})
+            "정책명만 묻거나 월세·취업·교육·창업·금융복지문화·참여 지원 질문도 포함할 수 있다. "
+            "search_keywords에는 질문에서 확인한 정책명 또는 핵심 주제 명사를 한국어로 최대 네 개 넣어라. "
+            "예: '창업 자금 지원을 알려줘'는 ['창업'], '면접비와 월세 지원'은 ['면접', '월세']. "
+            "질문에 없는 관심 분야나 개인의 나이·소득·주소를 검색어로 만들지 마라. "
+            "범위 밖이거나 검색 주제를 특정할 수 없으면 빈 목록을 반환하라.",
+            {"question": question, "policy_scopes": POLICY_SCOPES, "policy_corpus": POLICY_CORPUS})
 
     async def review(self, payload):
         return await self._ask(EvidenceDecision,
@@ -69,6 +101,9 @@ class LLMReasoner:
             "자료가 부족하다고 판단하지 마라. 그 비교는 다음 단계에서 한다. "
             "현재 신청 가능 여부는 reference_date와 모집 기간을 확인하라. "
             "문서명만 있고 공식 출처가 확인되지 않는 경우도 누락 정보로 기록하라. "
+            "기본 자료는 2026년 중앙행정기관·17시도 시행계획과 중앙 과제카드다. "
+            "시행계획의 사업 소개만으로 현재 모집 중이라고 판단하지 마라. "
+            "정책 API로 보완한 자료도 실제 본문·출처·기간을 같은 기준으로 검토하라. "
             "usable_ids에는 입력에 실제로 존재하는 문서 ID만 넣어라.", payload)
 
     async def compare(self, payload):
@@ -77,6 +112,10 @@ class LLMReasoner:
             "명확한 불일치는 not_eligible, 확인된 범위에서 부합하면 candidate, "
             "가구 규모·소득 기준 등 추가 확인이 필요하면 needs_review로 구분하라. "
             "월 소득과 기준중위소득 비율을 근거 없이 환산하지 마라. "
+            "statuses는 복수 선택이며 none은 미취업이라는 뜻이 아니다. unknown은 관심 분야 미지정이다. "
+            "시행계획에 세부 자격이 없거나 광역 지역만 알아 시군구 조건을 확인할 수 없으면 "
+            "이를 충족으로 추정하지 말고 needs_review로 안내하라. "
+            "search_mode가 question이면 이번 질문의 주제를 우선하고 프로필의 다른 관심 분야를 강요하지 마라. "
             "최종 신청 자격을 확정하지 마라. 현재 날짜와 모집 기간도 비교하라. "
             "각 정책에 실제 근거 ID를 연결하고, 필요한 사용자 정보만 추가 질문하라.", payload)
 
@@ -85,6 +124,8 @@ class LLMReasoner:
             "검토된 정책과 문서만으로 한국어 안내를 작성하라. 정책명·추천 또는 제외 이유·지원 내용·"
             "신청 방법 중 확인된 내용을 설명하고 미확인 사항을 명시하라. "
             "신청 자격을 확정하지 마라. not_eligible 정책을 신청 가능한 정책으로 추천하지 마라. "
+            "2026년 시행계획·과제카드의 계획 정보와 실제 모집 공고를 구분하고, "
+            "다른 연도 정보나 확인되지 않은 시군구 자격·모집 기간을 만들어 내지 마라. "
             "공식 출처 URL을 새로 만들지 말고 문서 ID를 [V1], [A1] 형태로 인용하라. "
             "cited_ids에는 실제 답변에 사용한 근거 ID를 넣어라.", payload)
 
@@ -92,7 +133,8 @@ class LLMReasoner:
 # [데이터 담당자에게 받은 문서를 Graph 형식으로 바꾸기]
 # 문자열 길이 제한은 토큰 비용을 줄이기 위한 것이며, 점수 0.8을 의미하지 않습니다.
 # 정책 ID·출처·조건 메타데이터는 그대로 보존합니다. 잘린 본문은 충분성 검토를 거칩니다.
-def to_evidence(docs: list[Document], origin: str, prefix: str) -> list[Evidence]:
+def to_evidence(docs: list[Document], origin: str, prefix: str,
+                *, limit: int = 20) -> list[Evidence]:
     result = []
     seen = set()
     for doc in docs:
@@ -103,7 +145,8 @@ def to_evidence(docs: list[Document], origin: str, prefix: str) -> list[Evidence
         seen.add(key)
         result.append(Evidence(evidence_id=f"{prefix}{len(result) + 1}", content=content[:3500],
                                metadata=doc.metadata.copy(), origin=origin))
-        if len(result) >= 10:
+        # [top_k와 내부 제한 맞추기] 검색에서 20개를 받아 놓고 10개로 다시 자르지 않습니다.
+        if len(result) >= limit:
             break
     return result
 
@@ -113,6 +156,8 @@ def payload_for(state: PolicyState, docs: list[Evidence]) -> dict:
             "profile": state["request"].profile.model_dump(),
             "reference_date": state["reference_date"],
             "policy_scopes": POLICY_SCOPES,
+            "policy_corpus": POLICY_CORPUS,
+            "search_mode": state.get("search_mode", "question"),
             "documents": [doc.model_dump() for doc in docs]}
 
 
@@ -175,7 +220,12 @@ class PolicyNodes:
         profile = state["request"].profile
         labels = {"age": "나이", "region": "거주지", "income": "소득(단위·기준 포함)",
                   "employment_status": "취업 상태", "interests": "관심 분야"}
-        missing = [key for key in labels if getattr(profile, key) in (None, "", [])]
+        # 입력 DTO가 공백을 None으로 정리하지만, 노드에서도 공백 문자열을 정보로 보지 않습니다.
+        missing = []
+        for key in labels:
+            value = getattr(profile, key)
+            if value is None or value == [] or (isinstance(value, str) and not value.strip()):
+                missing.append(key)
         question = "다음 정보를 입력해 주세요: " + ", ".join(labels[key] for key in missing)
         return self._step(state, "collect_profile", missing_fields=missing,
                           follow_up_question=question if missing else "")
@@ -187,16 +237,32 @@ class PolicyNodes:
         req = state["request"]
         scope = await self.reasoner.scope(req.question)
         profile = req.profile
-        query = (f"{req.question} 청년정책 {profile.region} {profile.age}세 "
-                 f"{profile.employment_status} {' '.join(profile.interests)}")
-        return self._step(state, "build_search", scope=scope, search_query=query[:2500])
+        # [질문이 없어서 서버가 기본 질문을 만든 경우]
+        # 프로필의 한국어 검색 문구와 상세 선택을 활용하되 소득은 임의의 숫자 필터로 만들지 않습니다.
+        if req.question_is_generated:
+            interests = [INTEREST_LABELS[code] for code in profile.interests if code in INTEREST_LABELS]
+            statuses = [STATUS_LABELS[code] for code in profile.statuses if code in STATUS_LABELS]
+            parts = [f"{POLICY_CORPUS['year']}년 청년정책", profile.region, f"{profile.age}세",
+                     profile.employment_status or "", *statuses, *interests, *profile.details]
+            query = " ".join(dict.fromkeys(part for part in parts if part))
+            api_queries = clean_search_keywords(interests) or ["청년"]
+            mode = "profile"
+        else:
+            # [사용자가 직접 질문한 경우]
+            # 이전 관심 분야를 검색어에 섞지 않습니다. 프로필은 이후 자격 비교에 계속 전달됩니다.
+            query = req.question
+            api_queries = clean_search_keywords(scope.search_keywords) if scope.in_scope else []
+            mode = "question"
+        return self._step(state, "build_search", scope=scope, search_query=query[:2500],
+                          search_mode=mode, supplement_queries=api_queries)
 
     # [3. R: Vector DB 검색]
     # 데이터 담당자가 준비한 검색 저장소에 질의합니다. 사용자 입력을 context로 쓰지 않습니다.
     async def retrieve(self, state):
         req = state["request"]
         docs = await self.retriever.search(state["search_query"], req.source, req.top_k)
-        return self._step(state, "retrieve", documents=to_evidence(docs, "vector_db", "V"))
+        return self._step(state, "retrieve", documents=to_evidence(
+            docs, "vector_db", "V", limit=req.top_k))
 
     # [4. 정보 충분성 판단]
     # '관련 문서가 있음'과 '질문에 답할 정보가 있음'은 다릅니다.
@@ -221,17 +287,33 @@ class PolicyNodes:
     async def supplement(self, state):
         # GraphPolicyAgent converts official policy records to ApiLookupResult.
         # 담당자가 주입한 객체의 lookup()만 호출하며, 오류가 나도 근거를 만들어 내지 않습니다.
+        queries = clean_search_keywords(state.get("supplement_queries", []))
+        results = []
+
+        # [Agent 코드는 그대로 두고 Graph 쪽에서 연결]
+        # 기존 Agent는 한 호출에서 검색어 세 개까지 처리합니다. 네 번째 관심 분야는 다음 묶음으로
+        # 전달하되 Graph의 보완 노드는 한 번만 실행하고 전체 50초 제한도 유지합니다.
+        async def lookup_batches():
+            for index in range(0, len(queries), 3):
+                result = await self.api_agent.lookup(
+                    ",".join(queries[index:index + 3]), state["review"].missing_information)
+                results.append(result if isinstance(result, ApiLookupResult)
+                               else ApiLookupResult(status="failed"))
+
         try:
-            result = await asyncio.wait_for(self.api_agent.lookup(
-                ",".join(state["request"].profile.interests[:3]), state["review"].missing_information), timeout=50)
+            await asyncio.wait_for(lookup_batches(), timeout=50)
         except TimeoutError:
-            result = ApiLookupResult(status="timeout")
+            results.append(ApiLookupResult(status="timeout"))
         except Exception:
-            result = ApiLookupResult(status="failed")
+            results.append(ApiLookupResult(status="failed"))
         valid_statuses = {"used", "not_configured", "no_results", "failed", "timeout"}
-        status = result.status if result.status in valid_statuses else "failed"
-        added = to_evidence([doc for doc in result.documents if isinstance(doc, Document)],
-                            "policy_api", "A")
+        statuses = [result.status if result.status in valid_statuses else "failed" for result in results]
+        # top_k는 Vector DB의 검색 개수입니다. 별도 API 보완 자료는 기존처럼 최대 10개로 유지합니다.
+        added = to_evidence([doc for result in results if result.status == "used"
+                             for doc in result.documents if isinstance(doc, Document)],
+                            "policy_api", "A", limit=10)
+        status = "used" if added else next(
+            (item for item in ("failed", "timeout", "not_configured") if item in statuses), "no_results")
         return self._step(state, "supplement", api_status=status,
                           api_added=bool(added), documents=state.get("documents", []) + added)
 

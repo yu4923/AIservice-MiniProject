@@ -5,13 +5,27 @@ from typing import Any, Literal, TypedDict
 from pydantic import BaseModel, Field
 
 # 기존 Graph의 import 경로를 유지하면서 외부 입력 검사는 별도 모듈에 둔다.
-from app.input_validation import RAGRequest, UserProfile
+from app.input_validation import REGIONS, RAGRequest, UserProfile
 
 
 POLICY_SCOPES = (
     "중앙정부 청년 지원사업", "지자체 청년 지원정책", "청년정책 신청 자격 지원 내용",
     "청년 지원사업 모집 공고", "청년정책 종합 안내",
 )
+
+# [팀에서 정한 검색 자료 범위]
+# 이 목록 자체가 정책 근거는 아닙니다. 실제 검색 문서에 없는 지원 조건은 만들지 않습니다.
+# 시행계획·과제카드는 모집 공고와 다르므로 현재 접수 여부는 별도 근거로 확인해야 합니다.
+POLICY_CORPUS = {
+    "year": 2026,
+    "document_groups": [
+        "2026년 중앙행정기관 청년정책 시행계획",
+        "17시도 광역지자체 2026 청년정책 시행계획",
+        "2026년 청년정책 시행계획 과제카드(중앙행정기관)",
+    ],
+    "regions": sorted(REGIONS),
+    "central_task_categories": ["일자리", "교육직업훈련", "주거", "금융복지문화", "참여기반"],
+}
 
 
 # [LLM의 판단 결과 DTO]
@@ -20,6 +34,9 @@ POLICY_SCOPES = (
 class ScopeDecision(BaseModel):
     in_scope: bool
     reason: str
+    # [직접 질문의 API 검색어]
+    # 기존 범위 판단 호출에서 주제 명사도 받아, 별도 LLM 호출 없이 같은 질문을 보완 검색합니다.
+    search_keywords: list[str] = Field(default_factory=list, max_length=4)
 
 
 class EvidenceDecision(BaseModel):
@@ -89,6 +106,8 @@ class PolicyState(TypedDict, total=False):
     reference_date: str
     missing_fields: list[str]
     search_query: str
+    search_mode: Literal["profile", "question"]
+    supplement_queries: list[str]
     scope: ScopeDecision
     documents: list[Evidence]
     review: EvidenceDecision

@@ -3,8 +3,13 @@
 from typing import Literal
 
 from pydantic import (
-    AliasChoices, BaseModel, ConfigDict, Field, ValidationInfo, field_validator,
+    AliasChoices, BaseModel, ConfigDict, Field, PrivateAttr, ValidationInfo,
+    field_validator, model_validator,
 )
+
+# [질문을 입력하지 않은 추천 요청]
+# 답변을 고정하는 것이 아니라, 별도로 받은 profile로 추천하라는 작업 지시만 채웁니다.
+DEFAULT_QUESTION = "입력한 사용자 정보와 관심 분야에 맞는 청년 지원정책을 추천해줘."
 
 REGIONS = frozenset({
     "서울", "부산", "대구", "인천", "광주", "대전", "울산", "세종", "경기",
@@ -49,6 +54,16 @@ class UserProfile(BaseModel):
     employment_status: str | None = Field(default=None, max_length=100)
     household_size: int | None = Field(default=None, ge=1, le=30)
 
+    # [공백만 있는 소득·취업 상태도 미입력]
+    # "   "는 실제 정보가 아닙니다. 문자열의 공백을 제거하고 비면 None으로 통일합니다.
+    # 숫자나 boolean을 문자열로 바꾸지는 않으므로 기존 엄격한 자료형 검증은 유지됩니다.
+    @field_validator("income", "employment_status", mode="before")
+    @classmethod
+    def prepare_optional_text(cls, value):
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
+
     @field_validator("region")
     @classmethod
     def check_region(cls, value: str) -> str:
@@ -92,15 +107,39 @@ class RAGRequest(BaseModel):
     """질문과 검증된 설문을 추천 API에 전달한다."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
-    question: str = Field(min_length=2, max_length=1000,
+    question: str = Field(default=DEFAULT_QUESTION, min_length=2, max_length=1000,
                           validation_alias=AliasChoices("question", "prompt"))
     profile: UserProfile
-    # all과 기본값은 기존 추천 서버 계약을 유지한다.
-    source: Literal["pdf", "web", "all"] = "all"
+    # [프론트는 profile만 전달]
+    # source가 없으면 서버가 PDF 검색을 선택합니다. 부족하면 기존 Graph가 정책 API로 보완합니다.
+    source: Literal["pdf", "web", "all"] = "pdf"
     top_k: int = Field(default=5, ge=1, le=20)
+
+    # [클라이언트가 조작할 수 없는 내부 표시]
+    # 같은 질문 문장이 들어와도 '직접 입력'과 '서버 자동 생성'을 문자열 비교로 구분하지 않습니다.
+    # PrivateAttr는 요청·응답 JSON에 포함되지 않으며 프론트가 보낼 필드도 아닙니다.
+    _question_is_generated: bool = PrivateAttr(default=False)
+
+    @property
+    def question_is_generated(self) -> bool:
+        return self._question_is_generated
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def remember_question_origin(cls, value, handler):
+        request = handler(value)
+        if isinstance(value, dict):
+            raw = value.get("question", value.get("prompt"))
+            request._question_is_generated = raw is None or (
+                isinstance(raw, str) and not raw.strip())
+        return request
 
     @field_validator("question", mode="before")
     @classmethod
     def prepare_question(cls, value):
-        """질문만 앞뒤 공백을 제거하며 본문·대소문자·줄바꿈은 보존한다."""
-        return value.strip() if isinstance(value, str) else value
+        """질문이 null·빈 문자열·공백이면 기본 질문을 쓰고, 유효한 질문은 보존한다."""
+        if value is None:
+            return DEFAULT_QUESTION
+        if isinstance(value, str):
+            return value.strip() or DEFAULT_QUESTION
+        return value
