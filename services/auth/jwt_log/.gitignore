@@ -1,0 +1,3 @@
+# JWT_code: 생성된 인증 로그를 Git에 올리지 않는다.
+*
+!.gitignore

@@ -65,7 +65,8 @@ public class JwtService {
             return new AuthIdentity(no, id, "jwt");
         } catch (JWTVerificationException | IllegalArgumentException ex) {
             // Keep token contents and signing configuration out of exception messages.
-            throw new JWTVerificationException("Invalid access token");
+            // JWT_code: 원인은 만료·서명 실패 분류에만 쓰고 예외 원문은 로그에 남기지 않는다.
+            throw new JWTVerificationException("Invalid access token", ex);
         }
     }
 }

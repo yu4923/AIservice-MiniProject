@@ -10,7 +10,8 @@ from fastapi.middleware.cors import CORSMiddleware                      #JWT_cod
 from app.auth import FRONTEND_ORIGIN, get_current_user                  #JWT_code: 요청별 JWT 검증과 보관 기능을 사용한다.
 
 from app.graph.nodes import LLMReasoner
-from app.graph.state import AnswerResponse, RAGRequest
+from app.graph.state import AnswerResponse
+from app.input_validation import RAGRequest
 from app.graph.workflow import PolicyRagService
 from app.tools.rag_api import RAGApiRetriever
 

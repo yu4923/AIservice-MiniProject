@@ -1,0 +1,730 @@
+{
+  "fixture": {
+    "question": "입력한 조건에 맞는 정책을 알려주세요.",
+    "source": "web",
+    "top_k": 5,
+    "profile": {
+      "age": 24,
+      "region": "서울",
+      "statuses": [
+        "student",
+        "unemployed"
+      ],
+      "interests": [
+        "employment",
+        "education"
+      ],
+      "details": [
+        "취업 준비 비용",
+        "시험 응시료"
+      ]
+    }
+  },
+  "cases": [
+    {
+      "id": "INPUT-001",
+      "name": "기본 설문",
+      "expected_status": 200
+    },
+    {
+      "id": "INPUT-002",
+      "name": "나이 최솟값",
+      "expected_status": 200,
+      "set": {
+        "profile.age": 0
+      }
+    },
+    {
+      "id": "INPUT-003",
+      "name": "나이 최댓값",
+      "expected_status": 200,
+      "set": {
+        "profile.age": 120
+      }
+    },
+    {
+      "id": "INPUT-004",
+      "name": "현재 상황 none 단독",
+      "expected_status": 200,
+      "set": {
+        "profile.statuses": [
+          "none"
+        ]
+      }
+    },
+    {
+      "id": "INPUT-005",
+      "name": "unknown과 빈 상세 선택",
+      "expected_status": 200,
+      "set": {
+        "profile.interests": [
+          "unknown"
+        ],
+        "profile.details": []
+      }
+    },
+    {
+      "id": "INPUT-006",
+      "name": "상세 항목 생략",
+      "expected_status": 200,
+      "remove": [
+        "profile.details"
+      ]
+    },
+    {
+      "id": "INPUT-007",
+      "name": "관심 분야 합집합",
+      "expected_status": 200,
+      "set": {
+        "profile.interests": [
+          "employment",
+          "housing"
+        ],
+        "profile.details": [
+          "면접 지원",
+          "월세·주거비"
+        ]
+      }
+    },
+    {
+      "id": "INPUT-008",
+      "name": "일반 상황 다섯 개",
+      "expected_status": 200,
+      "set": {
+        "profile.statuses": [
+          "student",
+          "employed",
+          "unemployed",
+          "self_employed",
+          "freelance"
+        ]
+      }
+    },
+    {
+      "id": "INPUT-009",
+      "name": "네 분야와 상세 항목 13개",
+      "expected_status": 200,
+      "set": {
+        "profile.interests": [
+          "employment",
+          "housing",
+          "education",
+          "startup"
+        ],
+        "profile.details": [
+          "취업 준비 비용",
+          "면접 지원",
+          "일 경험·인턴",
+          "직무 교육",
+          "월세·주거비",
+          "임대주택",
+          "주거 상담",
+          "시험 응시료",
+          "직무교육",
+          "학습비",
+          "사업화 자금",
+          "교육·멘토링",
+          "창업 공간"
+        ]
+      }
+    },
+    {
+      "id": "INPUT-010",
+      "name": "질문 앞뒤 공백과 내부 줄바꿈",
+      "expected_status": 200,
+      "set": {
+        "question": "  정책 추천\n추가 설명!  "
+      }
+    },
+    {
+      "id": "INPUT-011",
+      "name": "기존 all 검색과 top_k 최댓값",
+      "expected_status": 200,
+      "set": {
+        "source": "all",
+        "top_k": 20
+      }
+    },
+    {
+      "id": "INPUT-012",
+      "name": "기존 보완 정보",
+      "expected_status": 200,
+      "set": {
+        "profile.income": "월 200만원",
+        "profile.employment_status": "구직 중",
+        "profile.household_size": 1
+      }
+    },
+    {
+      "id": "INPUT-013",
+      "name": "profile 누락",
+      "expected_status": 422,
+      "remove": [
+        "profile"
+      ],
+      "error_field": "profile"
+    },
+    {
+      "id": "INPUT-014",
+      "name": "question 누락",
+      "expected_status": 422,
+      "remove": [
+        "question"
+      ],
+      "error_field": "question"
+    },
+    {
+      "id": "INPUT-015",
+      "name": "profile.age 누락",
+      "expected_status": 422,
+      "remove": [
+        "profile.age"
+      ],
+      "error_field": "profile.age"
+    },
+    {
+      "id": "INPUT-016",
+      "name": "profile.region 누락",
+      "expected_status": 422,
+      "remove": [
+        "profile.region"
+      ],
+      "error_field": "profile.region"
+    },
+    {
+      "id": "INPUT-017",
+      "name": "profile.statuses 누락",
+      "expected_status": 422,
+      "remove": [
+        "profile.statuses"
+      ],
+      "error_field": "profile.statuses"
+    },
+    {
+      "id": "INPUT-018",
+      "name": "profile.interests 누락",
+      "expected_status": 422,
+      "remove": [
+        "profile.interests"
+      ],
+      "error_field": "profile.interests"
+    },
+    {
+      "id": "INPUT-019",
+      "name": "나이 null",
+      "expected_status": 422,
+      "set": {
+        "profile.age": null
+      },
+      "error_field": "profile.age"
+    },
+    {
+      "id": "INPUT-020",
+      "name": "나이 문자열",
+      "expected_status": 422,
+      "set": {
+        "profile.age": "24"
+      },
+      "error_field": "profile.age"
+    },
+    {
+      "id": "INPUT-021",
+      "name": "나이 소수",
+      "expected_status": 422,
+      "set": {
+        "profile.age": 24.0
+      },
+      "error_field": "profile.age"
+    },
+    {
+      "id": "INPUT-022",
+      "name": "나이 boolean",
+      "expected_status": 422,
+      "set": {
+        "profile.age": true
+      },
+      "error_field": "profile.age"
+    },
+    {
+      "id": "INPUT-023",
+      "name": "나이 음수",
+      "expected_status": 422,
+      "set": {
+        "profile.age": -1
+      },
+      "error_field": "profile.age"
+    },
+    {
+      "id": "INPUT-024",
+      "name": "나이 범위 초과",
+      "expected_status": 422,
+      "set": {
+        "profile.age": 121
+      },
+      "error_field": "profile.age"
+    },
+    {
+      "id": "INPUT-025",
+      "name": "지역 빈 값",
+      "expected_status": 422,
+      "set": {
+        "profile.region": ""
+      },
+      "error_field": "profile.region"
+    },
+    {
+      "id": "INPUT-026",
+      "name": "지역 허용 목록 외",
+      "expected_status": 422,
+      "set": {
+        "profile.region": "없는지역"
+      },
+      "error_field": "profile.region"
+    },
+    {
+      "id": "INPUT-027",
+      "name": "지역 정식 명칭",
+      "expected_status": 422,
+      "set": {
+        "profile.region": "서울특별시"
+      },
+      "error_field": "profile.region"
+    },
+    {
+      "id": "INPUT-028",
+      "name": "지역 공백",
+      "expected_status": 422,
+      "set": {
+        "profile.region": " 서울 "
+      },
+      "error_field": "profile.region"
+    },
+    {
+      "id": "INPUT-029",
+      "name": "지역 null",
+      "expected_status": 422,
+      "set": {
+        "profile.region": null
+      },
+      "error_field": "profile.region"
+    },
+    {
+      "id": "INPUT-030",
+      "name": "지역 숫자",
+      "expected_status": 422,
+      "set": {
+        "profile.region": 24
+      },
+      "error_field": "profile.region"
+    },
+    {
+      "id": "INPUT-031",
+      "name": "statuses null",
+      "expected_status": 422,
+      "set": {
+        "profile.statuses": null
+      },
+      "error_field": "profile.statuses"
+    },
+    {
+      "id": "INPUT-032",
+      "name": "statuses 문자열",
+      "expected_status": 422,
+      "set": {
+        "profile.statuses": "student"
+      },
+      "error_field": "profile.statuses"
+    },
+    {
+      "id": "INPUT-033",
+      "name": "statuses 숫자 원소",
+      "expected_status": 422,
+      "set": {
+        "profile.statuses": [
+          1
+        ]
+      },
+      "error_field": "profile.statuses"
+    },
+    {
+      "id": "INPUT-034",
+      "name": "interests null",
+      "expected_status": 422,
+      "set": {
+        "profile.interests": null
+      },
+      "error_field": "profile.interests"
+    },
+    {
+      "id": "INPUT-035",
+      "name": "interests 문자열",
+      "expected_status": 422,
+      "set": {
+        "profile.interests": "student"
+      },
+      "error_field": "profile.interests"
+    },
+    {
+      "id": "INPUT-036",
+      "name": "interests 숫자 원소",
+      "expected_status": 422,
+      "set": {
+        "profile.interests": [
+          1
+        ]
+      },
+      "error_field": "profile.interests"
+    },
+    {
+      "id": "INPUT-037",
+      "name": "details null",
+      "expected_status": 422,
+      "set": {
+        "profile.details": null
+      },
+      "error_field": "profile.details"
+    },
+    {
+      "id": "INPUT-038",
+      "name": "details 문자열",
+      "expected_status": 422,
+      "set": {
+        "profile.details": "student"
+      },
+      "error_field": "profile.details"
+    },
+    {
+      "id": "INPUT-039",
+      "name": "details 숫자 원소",
+      "expected_status": 422,
+      "set": {
+        "profile.details": [
+          1
+        ]
+      },
+      "error_field": "profile.details"
+    },
+    {
+      "id": "INPUT-040",
+      "name": "statuses 빈 선택",
+      "expected_status": 422,
+      "set": {
+        "profile.statuses": []
+      },
+      "error_field": "profile.statuses"
+    },
+    {
+      "id": "INPUT-041",
+      "name": "interests 빈 선택",
+      "expected_status": 422,
+      "set": {
+        "profile.interests": []
+      },
+      "error_field": "profile.interests"
+    },
+    {
+      "id": "INPUT-042",
+      "name": "상황 코드 오류",
+      "expected_status": 422,
+      "set": {
+        "profile.statuses": [
+          "invalid"
+        ]
+      },
+      "error_field": "profile.statuses"
+    },
+    {
+      "id": "INPUT-043",
+      "name": "상황 중복",
+      "expected_status": 422,
+      "set": {
+        "profile.statuses": [
+          "student",
+          "student"
+        ]
+      },
+      "error_field": "profile.statuses"
+    },
+    {
+      "id": "INPUT-044",
+      "name": "none 배타 조건",
+      "expected_status": 422,
+      "set": {
+        "profile.statuses": [
+          "none",
+          "student"
+        ]
+      },
+      "error_field": "profile.statuses"
+    },
+    {
+      "id": "INPUT-045",
+      "name": "상황 여섯 개",
+      "expected_status": 422,
+      "set": {
+        "profile.statuses": [
+          "student",
+          "employed",
+          "unemployed",
+          "self_employed",
+          "freelance",
+          "none"
+        ]
+      },
+      "error_field": "profile.statuses"
+    },
+    {
+      "id": "INPUT-046",
+      "name": "관심 코드 오류",
+      "expected_status": 422,
+      "set": {
+        "profile.interests": [
+          "invalid"
+        ]
+      },
+      "error_field": "profile.interests"
+    },
+    {
+      "id": "INPUT-047",
+      "name": "관심 중복",
+      "expected_status": 422,
+      "set": {
+        "profile.interests": [
+          "employment",
+          "employment"
+        ]
+      },
+      "error_field": "profile.interests"
+    },
+    {
+      "id": "INPUT-048",
+      "name": "unknown 배타 조건",
+      "expected_status": 422,
+      "set": {
+        "profile.interests": [
+          "unknown",
+          "employment"
+        ]
+      },
+      "error_field": "profile.interests"
+    },
+    {
+      "id": "INPUT-049",
+      "name": "다른 분야 상세 선택",
+      "expected_status": 422,
+      "set": {
+        "profile.interests": [
+          "employment"
+        ],
+        "profile.details": [
+          "창업 공간"
+        ]
+      },
+      "error_field": "profile.details"
+    },
+    {
+      "id": "INPUT-050",
+      "name": "unknown 상세 선택",
+      "expected_status": 422,
+      "set": {
+        "profile.interests": [
+          "unknown"
+        ],
+        "profile.details": [
+          "면접 지원"
+        ]
+      },
+      "error_field": "profile.details"
+    },
+    {
+      "id": "INPUT-051",
+      "name": "상세 중복",
+      "expected_status": 422,
+      "set": {
+        "profile.details": [
+          "면접 지원",
+          "면접 지원"
+        ]
+      },
+      "error_field": "profile.details"
+    },
+    {
+      "id": "INPUT-052",
+      "name": "상세 열네 개",
+      "expected_status": 422,
+      "set": {
+        "profile.interests": [
+          "employment",
+          "housing",
+          "education",
+          "startup"
+        ],
+        "profile.details": [
+          "취업 준비 비용",
+          "면접 지원",
+          "일 경험·인턴",
+          "직무 교육",
+          "월세·주거비",
+          "임대주택",
+          "주거 상담",
+          "시험 응시료",
+          "직무교육",
+          "학습비",
+          "사업화 자금",
+          "교육·멘토링",
+          "창업 공간",
+          "추가 항목"
+        ]
+      },
+      "error_field": "profile.details"
+    },
+    {
+      "id": "INPUT-053",
+      "name": "직무 교육 표기 구분",
+      "expected_status": 422,
+      "set": {
+        "profile.interests": [
+          "education"
+        ],
+        "profile.details": [
+          "직무 교육"
+        ]
+      },
+      "error_field": "profile.details"
+    },
+    {
+      "id": "INPUT-054",
+      "name": "질문 빈 질문",
+      "expected_status": 422,
+      "set": {
+        "question": ""
+      },
+      "error_field": "question"
+    },
+    {
+      "id": "INPUT-055",
+      "name": "질문 공백 질문",
+      "expected_status": 422,
+      "set": {
+        "question": "   "
+      },
+      "error_field": "question"
+    },
+    {
+      "id": "INPUT-056",
+      "name": "질문 한 글자",
+      "expected_status": 422,
+      "set": {
+        "question": "가"
+      },
+      "error_field": "question"
+    },
+    {
+      "id": "INPUT-057",
+      "name": "질문 길이 초과",
+      "expected_status": 422,
+      "set": {
+        "question": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가"
+      },
+      "error_field": "question"
+    },
+    {
+      "id": "INPUT-058",
+      "name": "질문 null",
+      "expected_status": 422,
+      "set": {
+        "question": null
+      },
+      "error_field": "question"
+    },
+    {
+      "id": "INPUT-059",
+      "name": "질문 숫자",
+      "expected_status": 422,
+      "set": {
+        "question": 123
+      },
+      "error_field": "question"
+    },
+    {
+      "id": "INPUT-060",
+      "name": "질문 1000자",
+      "expected_status": 200,
+      "set": {
+        "question": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가"
+      }
+    },
+    {
+      "id": "INPUT-061",
+      "name": "top_k 문자열",
+      "expected_status": 422,
+      "set": {
+        "top_k": "5"
+      },
+      "error_field": "top_k"
+    },
+    {
+      "id": "INPUT-062",
+      "name": "top_k boolean",
+      "expected_status": 422,
+      "set": {
+        "top_k": true
+      },
+      "error_field": "top_k"
+    },
+    {
+      "id": "INPUT-063",
+      "name": "top_k 소수",
+      "expected_status": 422,
+      "set": {
+        "top_k": 1.5
+      },
+      "error_field": "top_k"
+    },
+    {
+      "id": "INPUT-064",
+      "name": "top_k 최솟값 미만",
+      "expected_status": 422,
+      "set": {
+        "top_k": 0
+      },
+      "error_field": "top_k"
+    },
+    {
+      "id": "INPUT-065",
+      "name": "top_k 최댓값 초과",
+      "expected_status": 422,
+      "set": {
+        "top_k": 21
+      },
+      "error_field": "top_k"
+    },
+    {
+      "id": "INPUT-066",
+      "name": "검색 source 오류",
+      "expected_status": 422,
+      "set": {
+        "source": "external"
+      },
+      "error_field": "source"
+    },
+    {
+      "id": "INPUT-067",
+      "name": "사용자 번호 위조 항목",
+      "expected_status": 422,
+      "set": {
+        "user_id": "other-user"
+      },
+      "error_field": "user_id"
+    },
+    {
+      "id": "INPUT-068",
+      "name": "프로필 추가 항목",
+      "expected_status": 422,
+      "set": {
+        "profile.district": "강남구"
+      },
+      "error_field": "profile.district"
+    }
+  ]
+}

@@ -70,6 +70,10 @@ def _audit_logger() -> logging.Logger:
             )
             handler.setFormatter(logging.Formatter("%(message)s"))
             logger.addHandler(handler)
+            #JWT_code: 파일을 열지 않아도 터미널·컨테이너 로그에서 같은 인증 결과를 찾게 한다.
+            console = logging.StreamHandler()
+            console.setFormatter(logging.Formatter("%(message)s"))
+            logger.addHandler(console)
             logger.setLevel(logging.INFO)
             logger.propagate = False
     return logger

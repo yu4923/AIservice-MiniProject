@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+    <!-- JWT_code: 프로세스별 회전 파일을 사용해 재시작·다중 실행의 기록 충돌을 줄인다. -->
+    <appender name="JWT_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${JWT_LOG_DIR:-jwt_log}/jwt-${PID:-unknown}.log</file>
+        <encoder><pattern>%msg%n</pattern><charset>UTF-8</charset></encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.FixedWindowRollingPolicy">
+            <fileNamePattern>${JWT_LOG_DIR:-jwt_log}/jwt-${PID:-unknown}.%i.log</fileNamePattern>
+            <minIndex>1</minIndex><maxIndex>5</maxIndex>
+        </rollingPolicy>
+        <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
+            <maxFileSize>5MB</maxFileSize>
+        </triggeringPolicy>
+    </appender>
+    <!-- JWT_code: 기존 프레임워크 로그 설정을 유지하고 인증 로그만 파일에도 남긴다. -->
+    <logger name="workplace.auth.jwt" level="INFO" additivity="false">
+        <appender-ref ref="JWT_FILE"/><appender-ref ref="CONSOLE"/>
+    </logger>
+    <root level="INFO"><appender-ref ref="CONSOLE"/></root>
+</configuration>

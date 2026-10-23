@@ -232,4 +232,27 @@ class AuthApiTest {
                         .content("{\"id\":\"demo\",\"password\":\"another-password\"}"))
                 .andExpect(status().isUnauthorized());
     }
+
+    // JWT_code: 실제 로그인 발급·거절 로그에도 자격증명이 섞이지 않는지 확인한다.
+    @Test void jwtIssuanceAuditDoesNotContainCredentials() throws Exception {
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger("workplace.auth.jwt");
+        var capture = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        capture.start();
+        logger.addAppender(capture);
+        try {
+            signup();
+            MvcResult result = login();
+            mvc.perform(post("/api/login").contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                            .param("id", "demo").param("password", "wrong-private-password"))
+                    .andExpect(status().isUnauthorized());
+            String messages = capture.list.stream().map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
+                    .collect(java.util.stream.Collectors.joining("\n"));
+            assertThat(messages).contains("\"event\":\"jwt_issue\"", "login_success", "invalid_credentials",
+                            result.getResponse().getHeader("X-Request-Id"))
+                    .doesNotContain(cookie(result, "ACCESS_TOKEN").getValue(), SECRET, "test-fixture-password", "wrong-private-password", "demo");
+        } finally {
+            logger.detachAppender(capture);
+            capture.stop();
+        }
+    }
 }
