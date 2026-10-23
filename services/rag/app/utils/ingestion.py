@@ -12,13 +12,6 @@ load_dotenv(BASE_DIR / ".env")
 DATA_DIR = Path(os.getenv("RAG_PREPROCESS_DIR", str(BASE_DIR / "data" / "preprocessed")))
 
 
-def require_env(name):
-    value = os.getenv(name)
-    if not value or not value.strip():
-        raise ValueError(f"Required environment variable is missing: {name}")
-    return value
-
-
 def _documents(chunks):
     from langchain_core.documents import Document
     return [Document(page_content=c["page_content"], metadata=c["metadata"]) for c in chunks]
@@ -39,7 +32,6 @@ def ingest_paper(file_path, source_name=None, *, dry_run=False, output_dir=None,
             raise ValueError(f"추출 가능한 텍스트가 없습니다. 검토 보고서: {output}")
         if any("unreadable_page" in p["quality_flags"] for p in result.pages):
             raise ValueError(f"읽지 못한 이미지 페이지가 있습니다. OCR 후 재실행하세요: {output}")
-        require_env("OPENAI_API_KEY")
         from app.retrieval.faiss_store import replace_documents
         store, added = replace_documents(_documents(result.chunks), "pdf",
                                          sources={manifest["document_id"]},
@@ -69,7 +61,6 @@ async def ingest_topic(topic, *, dry_run=False, urls=None, domains=None, limit=2
                                    "records": len(data["records"])}, ensure_ascii=False, indent=2), encoding="utf-8")
     store, added = None, 0
     if data["chunks"] and not dry_run:
-        require_env("OPENAI_API_KEY")
         from app.retrieval.faiss_store import replace_documents
         store, added = replace_documents(_documents(data["chunks"]), "web",
                                          sources={r["source_key"] for r in data["records"]},

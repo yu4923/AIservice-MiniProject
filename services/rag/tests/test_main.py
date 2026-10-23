@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 from fastapi.testclient import TestClient
 from langchain_core.documents import Document
 
-with patch.dict(os.environ, {'OPENAI_API_KEY': 'test-not-a-real-key'}), patch('dotenv.load_dotenv'):
+with patch.dict(os.environ, {}, clear=True), patch('dotenv.load_dotenv'):
     main = importlib.import_module('app.main')
 
 

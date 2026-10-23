@@ -40,6 +40,12 @@ langchain-community==0.4.1
 langchain-core>=1.2.7,<2.0
 langchain-text-splitters>=1.1.0
 
+# Local Hugging Face embeddings (KURE-v1)
+langchain-huggingface==1.2.2
+sentence-transformers>=5.2,<6.0
+transformers>=5.0,<6.0
+torch>=2.6,<3.0
+
 # OpenAI + LangChain OpenAI (중요: 1.x 사용)
 langchain-openai==1.1.7
 openai==1.109.1

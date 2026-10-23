@@ -5,6 +5,7 @@ The writer lock is shared by batch processes on this host. No external API call
 is made when callers pass an Embeddings implementation (offline tests).
 """
 from contextlib import contextmanager
+from functools import lru_cache
 from hashlib import sha256
 import json
 import os
@@ -12,7 +13,8 @@ from pathlib import Path
 import shutil
 import uuid
 
-FAISS_DIR = Path(os.getenv("RAG_FAISS_DIR", str(Path(__file__).resolve().parents[4] / "data" / "faiss")))
+DEFAULT_EMBEDDING_MODEL = "nlpai-lab/KURE-v1"
+FAISS_DIR = Path(os.getenv("RAG_FAISS_DIR", str(Path(__file__).resolve().parents[4] / "data" / "faiss-kure-v1")))
 _CACHE = {}
 
 
@@ -23,8 +25,25 @@ def chunk_id(document):
 
 
 def _embeddings():
-    from langchain_openai import OpenAIEmbeddings
-    return OpenAIEmbeddings(model=os.getenv("RAG_EMBEDDING_MODEL", "text-embedding-3-small"))
+    # Cache by settings so ingestion and query reuse the same local model.
+    return _local_embeddings(
+        os.getenv("RAG_EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL),
+        os.getenv("RAG_EMBEDDING_DEVICE", "cpu"),
+        int(os.getenv("RAG_EMBEDDING_BATCH_SIZE", "8")),
+    )
+
+
+@lru_cache(maxsize=1)
+def _local_embeddings(model, device, batch_size):
+    if batch_size < 1:
+        raise ValueError("RAG_EMBEDDING_BATCH_SIZE must be positive")
+    from langchain_huggingface import HuggingFaceEmbeddings
+    return HuggingFaceEmbeddings(
+        model_name=model,
+        model_kwargs={"device": device},
+        encode_kwargs={"normalize_embeddings": True, "batch_size": batch_size},
+        query_encode_kwargs={"normalize_embeddings": True},
+    )
 
 
 def _path(kind):
@@ -75,8 +94,8 @@ def load_vectorstore(kind, *, embeddings=None):
     active, meta = _active(root)
     if active is None:
         return None
-    model = os.getenv("RAG_EMBEDDING_MODEL", "text-embedding-3-small")
-    if embeddings is None and meta.get("embedding_model") not in (None, model):
+    model = os.getenv("RAG_EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL)
+    if embeddings is None and meta.get("embedding_model") != model:
         raise ValueError("Embedding model changed; rebuild the index in a new RAG_FAISS_DIR")
     signature = (str(active), (active / "index.faiss").stat().st_mtime_ns,
                  (active / "index.pkl").stat().st_mtime_ns, model)
@@ -98,8 +117,8 @@ def _update(documents, kind, sources=None, source_names=None, embeddings=None):
         raise ValueError("Empty input cannot replace a source index")
     with _lock(root):
         _, old_meta = _active(root)
-        model = os.getenv("RAG_EMBEDDING_MODEL", "text-embedding-3-small")
-        if embeddings is None and old_meta and old_meta.get("embedding_model") not in (None, model):
+        model = os.getenv("RAG_EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL)
+        if embeddings is None and old_meta and old_meta.get("embedding_model") != model:
             raise ValueError("Embedding model changed; choose a new index directory")
         embedding = embeddings or _embeddings()
         store = load_vectorstore(kind, embeddings=embedding)
@@ -136,9 +155,9 @@ def _update(documents, kind, sources=None, source_names=None, embeddings=None):
         try:
             store.save_local(str(target))
             _, old_meta = _active(root)
-            model = os.getenv("RAG_EMBEDDING_MODEL", "text-embedding-3-small")
+            model = os.getenv("RAG_EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL)
             # Preserve/validate the known model even when an injected embedder is used.
-            if embeddings is None and old_meta and old_meta.get("embedding_model") not in (None, model):
+            if embeddings is None and old_meta and old_meta.get("embedding_model") != model:
                 raise ValueError("Embedding model changed; choose a new index directory")
             pointer = {"generation": generation, "embedding_model": model,
                        "chunks": store.index.ntotal}

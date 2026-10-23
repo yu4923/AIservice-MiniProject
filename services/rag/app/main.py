@@ -13,9 +13,6 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
-if not os.getenv("OPENAI_API_KEY"):
-    raise RuntimeError("OPENAI_API_KEY가 설정되지 않았습니다.")
-
 # Read RAG_FAISS_DIR after loading .env, using the same loader as ingestion.
 from app.retrieval.faiss_store import load_vectorstore
 

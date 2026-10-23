@@ -8,8 +8,9 @@
 ## 실행 환경
 
 Python 3.11 이상. 프로젝트 가상환경에서 `requirements.txt`를 설치하세요.
-추가 Python 의존성은 `pdfplumber`, `pypdfium2`이며 기존 LangChain·FAISS 구성을 사용합니다.
-PDF 전처리 자체에는 OpenAI 키가 필요하지 않습니다.
+PDF 처리는 `pdfplumber`, `pypdfium2`, 임베딩은 `langchain-huggingface`와
+`sentence-transformers`·`transformers`·`torch`를 사용합니다.
+전처리·임베딩·검색에는 OpenAI 키가 필요하지 않습니다.
 
 ```bash
 python -m pip install -r services/rag/requirements.txt
@@ -49,7 +50,8 @@ python services/rag/scripts/ingest_papers.py --input "/path/to/cards.zip" --dry-
 python services/rag/scripts/ingest_papers.py --input "/path/to/cards.zip"
 ```
 
-임베딩 실행에는 `services/rag/.env`의 `OPENAI_API_KEY`가 필요하며 API 비용이 발생합니다.
+임베딩은 로컬 `nlpai-lab/KURE-v1`으로 실행합니다. 첫 실행에는 Hugging Face 모델 다운로드와
+저장 공간이 필요하며, 이후에는 캐시된 모델을 사용합니다. 모델 다운로드·실제 추론은 별도 확인이 필요합니다.
 문서 출처명은 기본적으로 입력 디렉터리 기준 상대경로, ZIP은 `archive.zip!/member.pdf`입니다.
 같은 원본을 직접 PDF로 주거나 ZIP으로 주면 별도 출처로 간주하므로 적재 경로를 일관되게
 유지하세요. 입력 파일을 다른 출처명으로 바꾼 경우 이전 출처를 자동으로 삭제하지 않습니다.
@@ -116,7 +118,7 @@ python services/rag/scripts/ingest_topics.py --topic "2026 서울 청년수당 �
 python services/rag/scripts/ingest_topics.py --url "https://www.seoul.go.kr/news/news_notice.do?bbsNo=277&nttNo=453234" --dry-run
 ```
 
-`--dry-run`을 빼면 전처리 후 OpenAI 임베딩과 FAISS 갱신을 수행합니다.
+`--dry-run`을 빼면 전처리 후 로컬 KURE-v1 임베딩과 FAISS 갱신을 수행합니다.
 `--url`은 여러 번 지정할 수 있습니다. `--config`로 다른 주제 JSON을 지정할 수 있으며
 기존 문자열 배열 또는 아래 배열을 모두 지원합니다.
 
@@ -142,13 +144,15 @@ python services/rag/scripts/ingest_topics.py --url "https://www.seoul.go.kr/news
 - 동일 출처 갱신 시 그 출처의 이전 청크를 교체합니다. 다른 출처와 수집 실패 출처는 보존합니다.
 - PDF의 조건 충돌은 검수 플래그로 남기고 검색 응답의 문서 메타데이터로 전달합니다.
 - 쓰기 잠금 + 새 세대 저장 + `current.json` 원자적 전환으로 실패한 적재를 공개하지 않습니다.
-- 기존 `data/faiss/pdf/index.faiss`, `index.pkl`도 읽습니다. 새 저장부터 `generations/`를 사용합니다.
+- 기본 인덱스 위치는 프로젝트의 `data/faiss-kure-v1/{pdf,web}/`입니다.
+  기존 `data/faiss/`는 보존하며, 모델 메타데이터가 없는 과거 인덱스는 재적재해야 합니다.
+  새 저장은 `generations/`와 `current.json`을 사용합니다.
 - 서버는 `load_vectorstore()`로 활성 세대를 읽고 질의마다 변경 여부를 확인합니다.
 - `RAG_FAISS_DIR`, `RAG_PREPROCESS_DIR`로 경로를, `RAG_EMBEDDING_MODEL`로 모델을 설정합니다.
 - 모델 변경은 기존 벡터와 섞지 않습니다. 새 인덱스 디렉터리에서 다시 적재해야 합니다.
 - 세대 기록은 자동 삭제하지 않습니다. 운영자가 백업·보관 정책에 따라 관리하세요.
 - 신뢰할 수 있는 로컬 FAISS 파일만 사용하세요. 메타데이터 로딩에 pickle을 사용합니다.
-- 검색 API는 `services/rag/.env`를 읽으며 임베딩에는 `OPENAI_API_KEY`가 필요합니다.
+- 검색 API는 `services/rag/.env`를 읽으며 KURE-v1을 로컬 실행합니다. OpenAI 키는 필요하지 않습니다.
   DB 연결과 LLM 답변 생성은 검색 API에서 수행하지 않습니다.
 
 ## 검증
@@ -180,7 +184,42 @@ LLM 답변·추천 생성은 이후 그래프에서 담당합니다. 인덱스�
 import 오류가 납니다. 웹 수집은 ingest_topics.py에서 수행하고 질의 API는 저장된 웹
 인덱스를 검색합니다. 요청할 때마다 웹 검색을 새로 실행하지는 않습니다.
 
-검색 API 테스트 10개와 전처리·저장소 테스트 20개로 전체 테스트는 30개입니다.
+검색 API 테스트 10개, 전처리·저장소 테스트 20개, KURE 연결 테스트 6개로 총 36개입니다.
 API 테스트는 인덱스를 모의 객체로 대체하고 실제 FastAPI HTTP 요청/응답, 메타데이터 보존,
 입력 검증, 오류 처리, 적재 후 다음 요청에서 최신 인덱스를 읽는 동작을 확인합니다.
-실제 OpenAI/DB 서버 연결은 실행하지 않았습니다.
+실제 모델 가중치 다운로드·KURE 추론 및 OpenAI/DB 서버 연결은 실행하지 않았습니다.
+
+## KURE-v1 설정과 기존 인덱스 전환
+
+환경설정 없이도 기본 모델은 `nlpai-lab/KURE-v1`, 장치는 `cpu`, 배치 크기는 8입니다.
+`services/rag/.env`가 필요하면 `.env.example`을 복사한 뒤 값을 조정하세요.
+
+```dotenv
+RAG_EMBEDDING_MODEL=nlpai-lab/KURE-v1
+RAG_EMBEDDING_DEVICE=cpu
+RAG_EMBEDDING_BATCH_SIZE=8
+# 선택: 기본 경로 대신 사용할 절대경로
+# RAG_FAISS_DIR=/absolute/path/to/data/faiss-kure-v1
+```
+
+NVIDIA GPU는 설치된 PyTorch가 CUDA를 지원할 때 `cuda`를 사용합니다.
+장치 메모리가 부족하면 배치 크기를 줄이세요. 문서와 질문 모두 단위 길이로 정규화합니다.
+모델 인스턴스는 프로세스 안에서 재사용하며, 환경설정 변경 후 API 서버를 재시작하세요.
+모델·정규화 방식을 바꿀 때는 같은 차원이어도 기존 벡터를 재사용할 수 없습니다.
+
+기존 `.env`나 셸에서 `RAG_EMBEDDING_MODEL=text-embedding-3-small` 또는
+`RAG_FAISS_DIR`를 설정했다면 새 모델과 새 경로로 변경하세요. 기존 인덱스의
+`embedding_model` 값만 바꾸지 마세요. 아래 명령으로 원본 데이터를 재적재해야 합니다.
+프로젝트 루트에서 실행하며, 기존 `documents/`, `config/topics.json` 구성을 사용합니다.
+
+```bash
+python -m pip install -r services/rag/requirements.txt
+python services/rag/scripts/ingest_papers.py
+python services/rag/scripts/ingest_topics.py
+python -m uvicorn app.main:app --app-dir services/rag --port 8001
+```
+
+공식 구현 참고: [KURE-v1 모델 카드](https://huggingface.co/nlpai-lab/KURE-v1),
+[LangChain Hugging Face 연동](https://docs.langchain.com/oss/python/integrations/embeddings/huggingfacehub).
+KURE 연결 테스트는 모델 생성자를 모의 객체로 대체하고 실제 FAISS 저장·질의를 검증합니다.
+모델의 실제 검색 품질이나 실행 장치 호환성을 검증하는 테스트는 아닙니다.
