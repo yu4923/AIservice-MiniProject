@@ -1,0 +1,14 @@
+# 작업 범위를 지키기 위해 의존성 목록도 recommendation/app 안에 둡니다.
+# 백업에서 추천 Graph에 필요한 패키지만 가져왔습니다. FAISS·PDF·DB 패키지는 RAG 서비스 몫입니다.
+fastapi>=0.110,<1.0
+uvicorn[standard]>=0.29,<1.0
+pydantic>=2.11,<3.0
+python-dotenv>=1.0
+httpx>=0.27,<1.0
+
+# 이전 구현에서 사용한 버전을 유지합니다.
+langgraph==1.0.10
+langgraph-prebuilt==1.0.8
+langchain-core>=1.2.7,<2.0
+langchain-openai==1.1.7
+openai==1.109.1
