@@ -197,7 +197,7 @@ class PolicyTests(unittest.TestCase):
         self.assertTrue(all(c['metadata']['verification_status'] == 'requires_review' for c in chunks))
 
     def test_rag_evidence_keeps_policy_name_conditions_and_source(self):
-        from app.retrieval.policy_search import RAGRequest, search_policies
+        from rag.retrieval.policy_search import RAGRequest, search_policies
         from unittest.mock import Mock
         pg = page(180, ['청년내일저축계좌 지원사업 공통', '1. 사업 개요', '일반청년 만19세 이상~만34세 이하', '지원 내용 '*20])
         _, chunks, _ = build_records([pg], 'ulsan.pdf', 'id', source_context('(울산) 2026.pdf'))
