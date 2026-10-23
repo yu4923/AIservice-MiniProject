@@ -36,3 +36,7 @@ faiss_db/
 dist/
 /data/**
 !/data/README.md
+
+# Local ingestion input documents
+/services/rag/documents/**
+!/services/rag/documents/.gitkeep
