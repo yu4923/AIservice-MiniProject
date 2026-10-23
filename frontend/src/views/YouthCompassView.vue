@@ -1,8 +1,8 @@
 <script setup>
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Brand from '../components/Brand.vue'
-import { demoMode, login, signup, ask, clearToken, recommendPolicies } from '../api/youth'
+import { demoMode, login, signup, ask, clearToken, recommendPolicies, checkAuth, logoutSession } from '../api/youth'
 
 const currentRoute = useRoute()
 const router = useRouter()
@@ -10,7 +10,13 @@ const route = computed(() => currentRoute.path)
 const go = (path) => router.push(path)
 const user = ref(null)
 const loginId=ref('')
-try { loginId.value=sessionStorage.getItem('youth-compass:display-id')||'' } catch { /* optional display preference */ }
+const logoutError=ref('')
+let authEpoch=0
+onMounted(async()=>{
+ const epoch=authEpoch
+ try{const session=await checkAuth();if(epoch!==authEpoch||!session?.ok)return;user.value={id:session.id,nickname:session.id};loginId.value=session.id}
+ catch(e){if(epoch===authEpoch&&e.status===401){user.value=null;loginId.value=''}}
+})
 const username=ref(''), password=ref(''), showPassword=ref(false), error=ref(''), success=ref(''), busy=ref(false)
 const isSignup=computed(()=>route.value==='/signup')
 const authPage=computed(()=>['/login','/signup'].includes(route.value))
@@ -70,7 +76,10 @@ function start(){go(user.value?'/survey/1':'/login')}
 function toggle(field,id,exclusive){const arr=profile.value[field];profile.value[field]=arr.includes(id)?arr.filter(x=>x!==id):id===exclusive?[id]:[...arr.filter(x=>x!==exclusive),id];if(field==='interests')profile.value.details=[]}
 const stepValid=computed(()=>[Number.isInteger(Number(profile.value.age))&&Number(profile.value.age)>=0&&Number(profile.value.age)<=120,regions.includes(profile.value.region),profile.value.statuses.length>0,profile.value.interests.length>0,true][step.value-1])
 async function submitAuth(){
+ if(busy.value)return
+ authEpoch++
  error.value='';success.value=''
+ username.value=username.value.trim()
  if(!username.value||!password.value){error.value='아이디와 비밀번호를 입력해 주세요.';return}
  if(isSignup.value){
   if(!/^[a-z][a-z0-9]{4,19}$/.test(username.value)){error.value='아이디는 영문 소문자로 시작하는 영문·숫자 5~20자예요.';return}
@@ -101,7 +110,13 @@ const exampleRows=[[0,1,0],[3,2,3,2]]
 const vCenterStrip={mounted(el){const position=()=>{const card=el.querySelector('article');if(card)el.scrollLeft=el.dataset.row==='1'?card.getBoundingClientRect().width*.90:0};requestAnimationFrame(position);const observer=new ResizeObserver(position);observer.observe(el);el._stripResize=observer},unmounted(el){el._stripResize?.disconnect()}}
 function sourceText(s){return typeof s==='string'?s:(s.title||s.document_id||'참고 자료')+(s.page?` · ${s.page}쪽`:'')}
 function sourceUrl(s){const value=typeof s==='string'?s:s.url;try{const u=new URL(value);return ['https:','http:'].includes(u.protocol)?u.href:null}catch{return null}}
-function logout(){clearToken();user.value=null;loginId.value='';try{sessionStorage.removeItem('youth-compass:display-id')}catch{/* optional storage */}messages.value=[];policies.value=[];result.value=null;go('/')}
+async function logout(){
+ if(busy.value)return
+ busy.value=true;logoutError.value='';authEpoch++
+ try{await logoutSession();clearToken();user.value=null;loginId.value='';username.value='';password.value='';try{sessionStorage.removeItem('youth-compass:display-id')}catch{/* optional storage */}messages.value=[];policies.value=[];result.value=null;profile.value={age:24,region:'',statuses:[],interests:[],details:[],income:null,employment_status:null,household_size:null};householdInput.value='';await go('/')}
+ catch(e){logoutError.value=e.message}
+ finally{busy.value=false}
+}
 function showHow(){if(currentRoute.path==='/home'&&currentRoute.hash==='#how'){document.getElementById('how')?.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'})}else router.push({path:'/home',hash:'#how'})}
 watch(route,()=>{error.value='';showPassword.value=false})
 
@@ -109,6 +124,7 @@ watch(route,()=>{error.value='';showPassword.value=false})
 
 <template>
  <div class="youth-shell">
+ <p v-if="logoutError" class="logout-error" role="alert">로그아웃하지 못했어요. {{logoutError}} <button class="text-button" @click="logout">다시 시도</button></p>
  <a class="skip-link" href="#main">본문으로 바로가기</a>
  <main v-if="authPage" id="main" class="auth-page">
   <section class="auth-card">
@@ -116,7 +132,7 @@ watch(route,()=>{error.value='';showPassword.value=false})
    <div class="auth-art" data-node-id="16:473"><button class="back-home" aria-label="홈으로" @click="go('/home')"><img src="/figma/69102.svg" alt=""></button></div>
    <div class="auth-content"><button class="brand-button" @click="go('/home')"><img class="auth-wordmark" src="/figma/03dfe.svg" alt="YOUTH COMPASS"></button><form @submit.prevent="submitAuth" novalidate>
     <h1>{{isSignup?'Sign Up':'Login'}}</h1>
-    <label for="username">아이디</label><input id="username" v-model="username" autocomplete="username" maxlength="20" :aria-invalid="!!error" :disabled="busy" required>
+    <label for="username">아이디</label><input id="username" v-model="username" autocomplete="username" :maxlength="isSignup?20:100" :aria-invalid="!!error" :disabled="busy" required>
     <label for="password">비밀번호</label><div class="password-field"><input id="password" v-model="password" :type="showPassword?'text':'password'" :autocomplete="isSignup?'new-password':'current-password'" maxlength="64" :disabled="busy" :aria-describedby="error?'auth-error':undefined" required><button type="button" :aria-label="showPassword?'비밀번호 숨기기':'비밀번호 보기'" :aria-pressed="showPassword" @click="showPassword=!showPassword"><img src="/figma/9ae49.svg" alt=""></button></div>
     <p v-if="error" id="auth-error" class="error" role="alert">{{error}}</p><p v-if="success" class="success" role="status">{{success}}</p>
     <button class="auth-submit" :disabled="busy">{{busy?'처리 중…':isSignup?'가입하기':'로그인'}}</button>
@@ -187,6 +203,7 @@ watch(route,()=>{error.value='';showPassword.value=false})
 <style scoped>
 .region-single { padding-top: 90px; }
 .region-single select { margin-top: 28px; }
+.logout-error { margin:0; padding:14px 24px; background:#fff1f3; color:#a61b36; position:relative; z-index:10; }
 .hero-start { position:relative; flex-shrink:0; margin:24px auto 28px; padding:15px 34px; min-height:54px; min-width:234px; border:1px solid #ffffff60; border-radius:40px; background:#ffffff12; color:white; font-size:20px; font-weight:600; line-height:1.3; transition:background 180ms ease; }
 .hero-start:hover { background:#ffffff26; }
 .hero>p { margin-bottom:0; }

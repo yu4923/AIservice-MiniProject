@@ -1,23 +1,24 @@
-export const demoMode = import.meta.env.VITE_DEMO_MODE !== 'false'
+export const demoMode = import.meta.env.VITE_DEMO_MODE === 'true'
 const authBase = import.meta.env.VITE_AUTH_API_URL || 'http://localhost:8080'
 const aiBase = import.meta.env.VITE_AI_API_URL || import.meta.env.VITE_RAG_API_URL || 'http://localhost:8001'
 const recommendBase = import.meta.env.VITE_RECOMMEND_API_URL || 'http://localhost:8002'
 // Compatibility with existing UI callers; authentication is now an HttpOnly cookie.
 // Ending the server session requires the backend logout API, not JS cookie deletion.
 export const clearToken = () => {}
-async function request(base, path, body) {
+async function request(base, path, body, method='POST') {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 45000)
   try {
     const response = await fetch(base.replace(/\/$/, '') + path, {
-      method: 'POST', credentials: 'include', signal: controller.signal,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
+      method, credentials: 'include', signal: controller.signal,
+      headers: method==='GET'?{}:{ 'Content-Type': 'application/json' },
+      ...(method==='GET'?{}:{body:JSON.stringify(body)})
     })
     const data = await response.json().catch(() => ({}))
-    if (!response.ok) {
-      const messages = {401:'로그인 정보를 확인하거나 다시 로그인해 주세요.',403:'접근 권한이 없어요.',422:'입력한 내용을 다시 확인해 주세요.',429:'요청이 많아요. 잠시 후 다시 시도해 주세요.',503:'AI 서비스가 준비 중이에요. 잠시 후 다시 시도해 주세요.'}
-      const error = new Error(data.error?.message || messages[response.status] || '요청을 처리하지 못했어요. 다시 시도해 주세요.')
+    if (!response.ok||data.ok===false) {
+      const messages = {400:'아이디와 비밀번호를 확인해 주세요.',401:'아이디 또는 비밀번호가 올바르지 않거나 로그인이 만료됐어요.',403:'접근 권한이 없어요.',409:'이미 사용 중인 아이디예요. 다른 아이디를 입력해 주세요.',422:'입력한 내용을 다시 확인해 주세요.',429:'요청이 많아요. 잠시 후 다시 시도해 주세요.',503:'서버가 준비 중이에요. 잠시 후 다시 시도해 주세요.'}
+      const codes={ID_EXISTS:messages[409],INVALID_CREDENTIALS:messages[401],VALIDATION_ERROR:messages[400]}
+      const error = new Error(codes[data.error?.code]||messages[response.status]||data.error?.message||'요청을 처리하지 못했어요. 다시 시도해 주세요.')
       error.status = response.status
       throw error
     }
@@ -28,14 +29,22 @@ async function request(base, path, body) {
     throw error
   } finally { clearTimeout(timer) }
 }
-export async function login(username, password) {
-  if (demoMode) return {user:{nickname:username},demo:true}
-  const data = await request(authBase, import.meta.env.VITE_LOGIN_PATH || '/api/auth/login', {username,password})
+export async function login(id, password) {
+  if (demoMode) return {user:{id,nickname:id},demo:true}
+  const data = await request(authBase, import.meta.env.VITE_LOGIN_PATH || '/api/login', {id:id.trim(),password})
   return data
 }
-export async function signup(username,password) {
+export async function signup(id,password) {
   if (demoMode) return {created:true,demo:true}
-  return request(authBase, import.meta.env.VITE_SIGNUP_PATH || '/api/auth/signup', {username,password})
+  return request(authBase, import.meta.env.VITE_SIGNUP_PATH || '/api/signup', {id:id.trim(),password})
+}
+export async function checkAuth(){
+  if(demoMode)return null
+  return request(authBase,import.meta.env.VITE_AUTH_CHECK_PATH||'/api/auth/check',undefined,'GET')
+}
+export async function logoutSession(){
+  if(demoMode)return {ok:true,demo:true}
+  return request(authBase,import.meta.env.VITE_LOGOUT_PATH||'/api/logout',{})
 }
 const regions=['서울','부산','대구','인천','광주','대전','울산','세종','경기','강원','충북','충남','전북','전남','경북','경남','제주']
 const statusValues=['student','employed','unemployed','self_employed','freelance','none']

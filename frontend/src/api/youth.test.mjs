@@ -29,12 +29,53 @@ test('profile-only request uses cookies and excludes question, JWT and arbitrary
 })
 
 test('cookie login accepts a successful response without a JWT', async () => {
-  globalThis.fetch = async (_url, options) => {
+  globalThis.fetch = async (url, options) => {
+    assert.equal(url,'http://localhost:8080/api/login')
+    assert.deepEqual(JSON.parse(options.body),{id:'testuser',password:'Test1234!'})
     assert.equal(options.credentials, 'include')
-    return { ok: true, json: async () => ({ user: { username: 'testuser' } }) }
+    return { ok: true, json: async () => ({ok:true,redirect:'/home',expires_in:3600}) }
   }
   const response = await api.login('testuser', 'Test1234!')
-  assert.equal(response.user.username, 'testuser')
+  assert.equal(response.ok,true)
+})
+
+test('signup sends id/password and preserves 201 response',async()=>{
+ globalThis.fetch=async(url,options)=>{
+  assert.equal(url,'http://localhost:8080/api/signup')
+  assert.deepEqual(JSON.parse(options.body),{id:'testuser',password:'Test1234!'})
+  assert.equal(options.credentials,'include')
+  return {ok:true,status:201,json:async()=>({ok:true,id:'testuser',no:'1'})}
+ }
+ assert.equal((await api.signup('testuser','Test1234!')).id,'testuser')
+})
+
+test('auth check uses GET and cookies without sending credentials in body',async()=>{
+ globalThis.fetch=async(url,options)=>{
+  assert.equal(url,'http://localhost:8080/api/auth/check')
+  assert.equal(options.method,'GET')
+  assert.equal(options.credentials,'include')
+  assert.equal('body' in options,false)
+  return {ok:true,json:async()=>({ok:true,id:'testuser',no:'1',via:'jwt'})}
+ }
+ assert.equal((await api.checkAuth()).id,'testuser')
+})
+
+test('logout sends POST with cookies to clear the backend session',async()=>{
+ globalThis.fetch=async(url,options)=>{
+  assert.equal(url,'http://localhost:8080/api/logout')
+  assert.equal(options.method,'POST')
+  assert.equal(options.credentials,'include')
+  assert.deepEqual(JSON.parse(options.body),{})
+  return {ok:true,json:async()=>({ok:true})}
+ }
+ assert.equal((await api.logoutSession()).ok,true)
+})
+
+test('duplicate id and invalid login are reported as Korean errors',async()=>{
+ for(const [code,status,pattern] of [['ID_EXISTS',409,/이미 사용 중/],['INVALID_CREDENTIALS',401,/아이디 또는 비밀번호/]]){
+  globalThis.fetch=async()=>({ok:false,status,json:async()=>({ok:false,error:{code,message:'backend message'}})})
+  await assert.rejects(api.login('testuser','Test1234!'),pattern)
+ }
 })
 
 test('chat sends only the trimmed question to recommend with cookies', async () => {
