@@ -3,6 +3,7 @@
 import asyncio
 import os
 from itertools import zip_longest
+from urllib.parse import urlsplit
 from typing import Any, Literal
 
 import httpx
@@ -30,6 +31,11 @@ class RAGApiRetriever:
     def __init__(self, base_url: str | None = None, *, timeout_seconds: float = 15,
                  transport: httpx.AsyncBaseTransport | None = None):
         self.base_url = (base_url or os.getenv("RAG_API_URL", "http://127.0.0.1:8001")).rstrip("/")
+        parsed = urlsplit(self.base_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.query or parsed.fragment or parsed.username or parsed.password:
+            raise ValueError("RAG_API_URL에는 인증정보·쿼리가 없는 HTTP(S) 서버 주소를 설정하세요.")
+        if parsed.path.rstrip("/").endswith(("/rag-query", "/recommend")):
+            raise ValueError("RAG_API_URL에는 API 경로가 아닌 서버 주소만 입력하세요.")
         self.timeout_seconds = timeout_seconds
         # 테스트에서 가짜 HTTP 서버를 넣는 자리입니다. 실제 서버에서는 생략합니다.
         self.transport = transport
