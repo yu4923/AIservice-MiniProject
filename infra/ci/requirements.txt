@@ -1,0 +1,10 @@
+# Offline CI: do not download PyTorch, Whisper or embedding model weights.
+-r ../../services/fastapi/app/requirements.txt
+langchain-community==0.4.1
+faiss-cpu>=1.7
+pdfplumber>=0.11,<1.0
+pypdfium2>=4.30,<6.0
+pypdf>=4.0
+aiohttp>=3.9
+beautifulsoup4>=4.12
+pytest>=8,<10
