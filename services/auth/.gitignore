@@ -11,3 +11,7 @@ __pycache__/
 # 버전 관리할 공개 DDL만 예외로 두고 DB 덤프는 계속 제외한다.
 !src/main/resources/db/schema.sql
 !src/test/resources/test-schema.sql
+
+.backups/
+
+.logs/

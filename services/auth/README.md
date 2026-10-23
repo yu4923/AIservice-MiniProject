@@ -82,6 +82,6 @@ python3 scripts/evaluate_auth.py
 
 현재 계약은 no-id-pw-v2다. 기존 숫자 id는 no, username은 id, password는 pw로 이름을 바꿔 기존 계정과 해시를 보존한다. created_at과 updated_at은 제거한다. 새 가입 응답은 {"ok":true,"no":"7","id":"demo"} 형식이며 로그인 입력은 {"id":"demo","password":"..."}다.
 
-기존 DB는 CREATE TABLE IF NOT EXISTS나 JPA validate로 자동 변경되지 않는다. 백업과 별도 승인 후 docs/sql/migrate-users-no-id-pw.sql을 수동 적용해야 한다. 새 코드·DB·프론트·FastAPI 적용 시점을 맞춘다. JWT sub는 내부 no 문자열, id claim은 로그인 문자열이다. 이전 username claim만 가진 토큰은 재로그인이 필요하다.
+2026-10-23 사용자 승인으로 실제 개발 DB의 기존 계정 4개를 백업 후 초기화하고 users(no, id, pw)를 새로 생성했다. 데이터 보존용 마이그레이션 SQL은 실행하지 않았다. 기존 호스트 8080 auth 서버는 종료했고, 현재 DB와 Spring은 auth-local Compose에서 실행한다. 이후 일반 시작·종료는 데이터를 초기화하지 않는다. JWT sub는 내부 no 문자열, id claim은 로그인 문자열이다. 기존 계정은 다시 가입해야 하며 이전 username claim만 가진 토큰은 사용할 수 없다. 프론트·FastAPI 적용과 연결 검증은 각 담당자가 진행한다. 검증·백업·복구는 docs/VERIFICATION.md를 따른다.
 
 docs/auth-evaluation-results.json의 historical=true 결과는 이전 계약의 기록이다. 현재 변경의 검증 상태는 docs/VERIFICATION.md를 따른다. 실제 개발 DB와 실행 중인 서버의 변경은 검증용 임시 DB 기동과 구분한다.
