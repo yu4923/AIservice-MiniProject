@@ -38,8 +38,8 @@ dist/
 !/data/README.md
 
 # Local ingestion input documents
-/services/rag/documents/**
-!/services/rag/documents/.gitkeep
+/services/fastapi/rag/documents/**
+!/services/fastapi/rag/documents/.gitkeep
 
 .idea/
 *.iml
@@ -56,3 +56,17 @@ data/preprocessed/
 
 # Local test directories
 tests/
+
+# Shared backend CI tests (local experimental tests remain ignored elsewhere)
+!/services/fastapi/rag/tests/
+!/services/fastapi/rag/tests/**
+!/services/fastapi/tests/
+!/services/fastapi/tests/**
+
+# Generated test caches remain private even under shared test directories
+**/__pycache__/
+*.py[cod]
+
+/services/fastapi/jwt_log/
+/services/fastapi/rag/data/
+.pytest_cache/

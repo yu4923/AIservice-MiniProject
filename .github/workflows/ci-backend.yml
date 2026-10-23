@@ -1,0 +1,98 @@
+name: Backend CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: backend-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  auth:
+    name: Auth tests, build and MariaDB
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_DATABASE: ci_auth
+          MARIADB_USER: ci_user
+          MARIADB_PASSWORD: ci-fixture-password
+          MARIADB_ROOT_PASSWORD: ci-fixture-root-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+          cache-dependency-path: services/auth/**/*.gradle
+      - name: Unit/API fixture tests and build
+        working-directory: services/auth
+        run: ./gradlew --no-daemon test bootJar
+      - name: Start against disposable MariaDB and verify HTTP flow
+        env:
+          DB_URL: jdbc:mariadb://127.0.0.1:3306/ci_auth
+          DB_USER: ci_user
+          DB_PASSWORD: ci-fixture-password
+          JWT_SECRET: ci-fixture-jwt-secret-only-not-a-production-key
+          SERVER_ADDRESS: 127.0.0.1
+          SERVER_PORT: '8080'
+          SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+          SPRING_JPA_SHOW_SQL: 'false'
+        shell: bash
+        run: |
+          java -jar services/auth/build/libs/auth-service-*.jar > "$RUNNER_TEMP/auth.log" 2>&1 &
+          auth_pid=$!
+          trap 'kill "$auth_pid" 2>/dev/null || true' EXIT
+          python3 infra/ci/check_auth.py
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: auth-test-results
+          path: services/auth/build/test-results/test/*.xml
+          if-no-files-found: warn
+          retention-days: 7
+  python:
+    name: ${{ matrix.service }} offline tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [fastapi]
+    env:
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      OPENAI_API_KEY: ''
+      YOUTH_POLICY_API_KEY: ''
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: |
+            infra/ci/requirements.txt
+            services/fastapi/requirements.txt
+            services/fastapi/app/requirements.txt
+      - name: Install test dependencies
+        run: python -m pip install -r infra/ci/requirements.txt
+      - name: Test
+        working-directory: services/${{ matrix.service }}
+        run: python -m pytest tests rag/tests checks/test_jwt_logging.py -q --junitxml="$RUNNER_TEMP/${{ matrix.service }}-tests.xml"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: ${{ matrix.service }}-test-results
+          path: ${{ runner.temp }}/${{ matrix.service }}-tests.xml
+          if-no-files-found: warn
+          retention-days: 7

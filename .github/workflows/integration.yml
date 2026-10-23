@@ -1,0 +1,54 @@
+name: Backend live integration
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Live component (OpenAI calls may incur charges)'
+        type: choice
+        options: [kure, policy, llm, graph, all]
+        default: kure
+        required: true
+      policy_keyword:
+        description: 'Policy-name keyword for the official API'
+        default: '월세'
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: live-integration-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  live:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    environment: integration
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: |
+            services/fastapi/app/requirements.txt
+            services/fastapi/rag/requirements.txt
+      - name: Install recommendation dependencies
+        run: python -m pip install -r services/fastapi/app/requirements.txt
+      - name: Install CPU embedding dependencies
+        if: inputs.target == 'kure' || inputs.target == 'all'
+        run: |
+          python -m pip install 'torch>=2.6,<3' --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -r services/fastapi/rag/requirements.txt
+      - uses: actions/cache@v4
+        if: inputs.target == 'kure' || inputs.target == 'all'
+        with:
+          path: ~/.cache/huggingface/hub
+          key: hf-kure-v1-${{ runner.os }}-${{ hashFiles('services/fastapi/rag/requirements.txt', 'services/fastapi/rag/retrieval/faiss_store.py') }}
+      - name: Real provider integration
+        env:
+          LIVE_TARGET: ${{ inputs.target }}
+          POLICY_KEYWORD: ${{ inputs.policy_keyword }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          YOUTH_POLICY_API_KEY: ${{ secrets.YOUTH_POLICY_API_KEY }}
+          LLM_MODEL: ${{ vars.LLM_MODEL || 'gpt-4o' }}
+        run: python infra/ci/live_integration.py

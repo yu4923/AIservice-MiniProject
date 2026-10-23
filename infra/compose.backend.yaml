@@ -1,26 +1,22 @@
-# Run from repo root:
-# docker compose --env-file services/recommendation/.env -f infra/compose.backend.yaml up -d --build
-# FAISS volume sharing and database initialization are deliberately not configured here.
+# docker compose --env-file services/fastapi/.env -f infra/compose.backend.yaml up -d --build
+# DB and FAISS volume policies are managed separately.
 services:
-  rag:
+  fastapi:
     build:
-      context: ../services/rag
+      context: ../services/fastapi
     environment:
-      RAG_EMBEDDING_MODEL: ${RAG_EMBEDDING_MODEL:-nlpai-lab/KURE-v1}
-      RAG_EMBEDDING_DEVICE: ${RAG_EMBEDDING_DEVICE:-cpu}
-      RAG_EMBEDDING_BATCH_SIZE: ${RAG_EMBEDDING_BATCH_SIZE:-8}
-      RAG_FAISS_DIR: /workspace/data/faiss-kure-v1
-    ports:
-      - "127.0.0.1:8001:8001"
-  recommendation:
-    build:
-      context: ../services/recommendation
-    environment:
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET to match Spring}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:5174}
       OPENAI_API_KEY: ${OPENAI_API_KEY:?Set OPENAI_API_KEY}
       YOUTH_POLICY_API_KEY: ${YOUTH_POLICY_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o}
-      RAG_API_URL: http://rag:8001
+      RAG_EMBEDDING_MODEL: ${RAG_EMBEDDING_MODEL:-nlpai-lab/KURE-v1}
+      RAG_EMBEDDING_DEVICE: ${RAG_EMBEDDING_DEVICE:-cpu}
+      RAG_EMBEDDING_BATCH_SIZE: ${RAG_EMBEDDING_BATCH_SIZE:-8}
+      RAG_BUILD_ON_START: ${RAG_BUILD_ON_START:-true}
+      RAG_REQUIRED_INDEXES: ${RAG_REQUIRED_INDEXES:-web}
+      RAG_FAISS_DIR: /workspace/data/faiss-kure-v1
+      NAVER_CLIENT_ID: ${NAVER_CLIENT_ID:-}
+      NAVER_CLIENT_SECRET: ${NAVER_CLIENT_SECRET:-}
     ports:
       - "127.0.0.1:8002:8002"
-    depends_on:
-      - rag
