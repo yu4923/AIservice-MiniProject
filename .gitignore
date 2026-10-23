@@ -40,3 +40,12 @@ dist/
 # Local ingestion input documents
 /services/rag/documents/**
 !/services/rag/documents/.gitkeep
+
+.idea/
+*.iml
+secrets/
+**/secrets/
+/docker-data/
+/services/auth/docker-data/
+!/services/auth/src/main/resources/db/schema.sql
+!/services/auth/src/test/resources/test-schema.sql
