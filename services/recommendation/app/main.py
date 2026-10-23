@@ -22,7 +22,7 @@ load_dotenv(APP_DIR.parent / ".env", override=False)
 
 # [객체 연결: Spring의 의존성 주입과 같은 역할]
 # API는 요청과 응답만 담당하고, 실제 처리는 PolicyRagService에 맡깁니다.
-# agents 폴더는 그대로 두고, 담당자의 객체가 준비되면 api_agent로 주입합니다.
+# Default GraphPolicyAgent uses the policy API; tests can inject another agent.
 def create_app(service: PolicyRagService | None = None, *, api_agent=None) -> FastAPI:
     application = FastAPI(title="청년정책 추천 Graph API", version="1.0.0")
     application.state.policy_service = service if service is not None else PolicyRagService(

@@ -219,11 +219,11 @@ class PolicyNodes:
     # 메인 Graph가 이 분기를 선택합니다. Agent는 외부 정책 API 도구만 사용합니다.
     # API 미설정·장애라도 기존 문서를 버리지 않고 보완 여부를 기록합니다.
     async def supplement(self, state):
-        # [연결 지점만 복원] agents 폴더의 구현은 수정하지 않습니다.
+        # GraphPolicyAgent converts official policy records to ApiLookupResult.
         # 담당자가 주입한 객체의 lookup()만 호출하며, 오류가 나도 근거를 만들어 내지 않습니다.
         try:
             result = await asyncio.wait_for(self.api_agent.lookup(
-                state["search_query"], state["review"].missing_information), timeout=50)
+                ",".join(state["request"].profile.interests[:3]), state["review"].missing_information), timeout=50)
         except TimeoutError:
             result = ApiLookupResult(status="timeout")
         except Exception:

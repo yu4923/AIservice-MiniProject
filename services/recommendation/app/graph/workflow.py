@@ -9,16 +9,16 @@ from langgraph.graph import END, START, StateGraph
 
 from app.graph.nodes import PolicyNodes, Reasoner, Retriever
 from app.graph.state import AnswerResponse, Citation, PolicyState, RAGRequest
-from app.tools.youth_policy_api import UnconfiguredPolicyAgent
+from app.agents.policy_agent import GraphPolicyAgent
 
 
 # [이전 policy_graph.py를 현재 폴더 구조에 맞게 나눈 Service]
 # main.py가 answer_question()을 부르면 각 노드는 workflow에 정의한 경로로 움직입니다.
 class PolicyRagService(PolicyNodes):
     def __init__(self, retriever: Retriever, reasoner: Reasoner, api_agent=None):
-        # agents 폴더는 건드리지 않고, 팀원이 만든 Agent 객체를 나중에 주입할 수 있습니다.
+        # Explicit injection remains available for tests and alternative API agents.
         super().__init__(retriever, reasoner,
-                         api_agent if api_agent is not None else UnconfiguredPolicyAgent())
+                         api_agent if api_agent is not None else GraphPolicyAgent())
         self.graph = self._build_graph()
 
     # [Graph의 지도]
