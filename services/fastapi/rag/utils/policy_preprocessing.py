@@ -21,11 +21,12 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
-VERSION = "policy-preprocess-v2"
+VERSION = "policy-preprocess-v3"
 TASK = re.compile(
     r"^\s*\[?(?P<id>[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩⅪⅫIVX]+(?:\s*-\s*\d+){2,4}\s*-\s*\(\d+\)"
     r"|\d+(?:\s*-\s*(?:\d+|[\ue000-\uf8ff])){1,3}\s*-\s*[가-힣]+\s*-\s*\d+"
-    r"|\d+(?:\s*-\s*\d+){2,3})\]?(?![\d-])\s*(?P<title>.*)$"
+    r"(?:\s*-\s*[①-⑳])?|\d+(?:\s*-\s*\d+){1,3}(?:\([가-힣]+\))?)"
+    r"\]?(?![\d-])\s*(?P<title>.*)$"
 )
 REGIONS = {"서울": "서울특별시", "부산": "부산광역시", "대구": "대구광역시",
            "인천": "인천광역시", "광주": "광주광역시", "대전": "대전광역시",
@@ -70,12 +71,13 @@ class Result:
     policies: list[dict] = field(default_factory=list)
     chunks: list[dict] = field(default_factory=list)
     reviews: list[dict] = field(default_factory=list)
+    supplements: list[dict] = field(default_factory=list)
 
     def save(self, directory: Path) -> Path:
         """Publish a complete local preprocessing run via a manifest written last."""
         target = directory / self.manifest["document_id"] / self.manifest["run_id"]
         target.mkdir(parents=True, exist_ok=True)
-        for name in ("pages", "policies", "chunks", "reviews"):
+        for name in ("pages", "policies", "chunks", "reviews", "supplements"):
             tmp = target / (name + ".jsonl.tmp")
             with tmp.open("w", encoding="utf-8") as f:
                 for row in getattr(self, name):
@@ -299,8 +301,12 @@ def _heading(page):
         header.append(block)
     matches = [(block, TASK.match(block["text"])) for block in header]
     numbered = [(block, match) for block, match in matches if match]
-    common = [block for block in header
-              if has_overview and re.match(r"^(?:공통|[\ue000-\uf8ff])(?:\s|$)", block["text"])]
+    # Short local numbers are meaningful only on an actual business start.
+    numbered = [(block, match) for block, match in numbered
+                if overview_page or not re.fullmatch(r"\d+\s*-\s*\d+", match["id"])]
+    common = [block for block in header if has_overview and
+              (re.match(r"^(?:공통|기타|공동|[\ue000-\uf8ff])(?:\s|$)", block["text"])
+               or re.search(r"(?:^|\s)(?:공통|기타|공동)\s*$", block["text"]))]
     if not numbered and not common:
         return None
     anchor = (numbered[0][0] if numbered else common[0])["bbox"]
@@ -312,16 +318,139 @@ def _heading(page):
         if match:
             text = match["title"]
         else:
-            text = re.sub(r"^(?:공통|[\ue000-\uf8ff])\s*", "", block["text"])
-        text = re.sub(r"(?:^|\s)(?:자체|공통|신규|계속)\s*$", "", text).strip()
+            text = re.sub(r"^(?:(?:공통|기타|공동)(?:\s+|$)|[\ue000-\uf8ff]\s*)", "", block["text"])
+        text = re.sub(r"(?:^|\s)(?:자체|공통|기타|공동|신규|계속)\s*$", "", text).strip()
         if text:
             titles.append(text)
     if not titles:
         return None
-    task_id = (re.sub(r"\s", "", numbered[0][1]["id"]) if numbered
-               else common[0]["text"].split()[0])
+    if numbered:
+        task_id = re.sub(r"\s", "", numbered[0][1]["id"])
+    else:
+        label = re.match(r"(?:공통|기타|공동|[\ue000-\uf8ff])(?=\s|$)", common[0]["text"])
+        task_id = label[0] if label else re.search(r"(?:공통|기타|공동)\s*$", common[0]["text"])[0].strip()
     # Keep undecodable private-use glyphs as evidence; never guess their digits.
     return task_id, " ".join(titles)
+
+
+def _document_boundary(page):
+    """Top-level annexes never inherit the last policy's identity or conditions."""
+    lines = page.get("heading_blocks", page["blocks"])
+    top = [b["text"] for b in lines if b["kind"] == "text" and b["bbox"][1] < 200]
+    compact = re.sub(r"\s", "", " ".join(top[:5]))
+    if any(re.fullmatch(r"\s*목\s*차\s*", line) for line in page["raw_text"].splitlines()[:4]):
+        return None
+    raw_compact = re.sub(r"\s", "", page["raw_text"])
+    if len(raw_compact) < 200:
+        compact += raw_compact  # section divider titles can be centred below the header
+        if any(re.fullmatch(r"\s*(?:붙\s*임|부\s*록|별\s*첨)\s*", line)
+               for line in page["raw_text"].splitlines()):
+            return "appendix"
+    if re.search(r"(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩIVX]+[.．])[^。]{0,45}(?:자체사업총괄|사업총괄표)", compact):
+        return "document_summary"
+    if re.match(r"(?:참고\d+(?![\d대])|부록|별첨)", compact):
+        return "document_summary" if "자체사업현황" in compact or "세부사업내역" in compact else "appendix"
+    return None
+
+
+def _partition_pages(pages):
+    mode = "policy"
+    tagged = []
+    for page in pages:
+        boundary = _document_boundary(page)
+        if boundary:
+            mode = boundary
+        elif mode != "policy" and _heading(page) and any(
+                re.match(r"1\.\s*사업\s*개요", b["text"]) and b["bbox"][1] <= 240
+                for b in page["blocks"] if b["kind"] == "text"):
+            # An internal reference or front-matter note does not swallow later policies.
+            mode = "policy"
+        tagged.append({**page, "document_role": mode})
+    return tagged
+
+
+def _supplement_records(pages, source, context):
+    """Preserve annex rows without assigning them to a policy or a resident."""
+    result, columns = [], None
+    for page in pages:
+        role = page.get("document_role", "policy")
+        if role == "policy":
+            continue
+        entries = []
+        for block in page["blocks"]:
+            if role != "document_summary" or block["kind"] != "table":
+                continue
+            for row_index, row in enumerate(block["rows"]):
+                cells = [normalize(c or "") for c in row]
+                compact = [re.sub(r"\s", "", c) for c in cells]
+                if "사업명" in compact and any("주요내용" in c for c in compact):
+                    columns = {"name": compact.index("사업명"),
+                               "content": next(i for i, c in enumerate(compact) if "주요내용" in c),
+                               "region": next((i for i, c in enumerate(compact) if "지자체" in c or "시군명" in c), None),
+                               "years": {i: 2000 + int(m[1]) for i, c in enumerate(compact)
+                                         if (m := re.search(r"[‘’'`]?(\d{2})(?:예산|년)", c))},
+                               "year_headers_raw": [c for c in cells if "예산" in c or re.search(r"\d{2}.*년", c)]}
+                    continue
+                if not columns or max(columns["name"], columns["content"]) >= len(cells):
+                    continue
+                name, content = cells[columns["name"]], cells[columns["content"]]
+                if not name or not content or re.match(r"^(?:소계|합계|총계)", name):
+                    continue
+                region_index = columns["region"]
+                issuer = cells[region_index] if region_index is not None and region_index < len(cells) else None
+                entries.append({"policy_name": name.replace("\n", " "), "conditions_raw": content,
+                                "issuer_raw": issuer, "residence_status": "unverified",
+                                "issuer_status": "literal" if issuer else "unverified",
+                                "year_mapping_status": "header_literal" if columns["years"] and
+                                len(columns["years"]) == len(columns["year_headers_raw"]) else "requires_review",
+                                "year_headers_raw": columns["year_headers_raw"],
+                                "year_values_raw": {str(year): cells[i] for i, year in columns["years"].items() if i < len(cells)},
+                                "page": page["page"], "bbox": block["bbox"], "row_index": row_index,
+                                "cells": cells, "link_status": "requires_review",
+                                "quality_flags": page["quality_flags"]})
+        result.append({"record_type": role, "source": source, **context, "page": page["page"],
+                       "raw_text": page["raw_text"], "blocks": page["blocks"], "entries": entries,
+                       "quality_flags": page["quality_flags"], "policy_link_status": "unverified"})
+    return result
+
+
+def _link_summary_evidence(supplements, policies, chunks, reviews):
+    """Exact names are review candidates, never proof of matching local policies."""
+    key = lambda value: re.sub(r"[\W_]", "", normalize(value))
+    for supplement in supplements:
+        for entry in supplement["entries"]:
+            matches = [p for p in policies if key(p["policy_name"]) == key(entry["policy_name"])]
+            entry["name_candidates"] = [p["policy_id"] for p in matches]
+            issuer = re.sub(r"\([^)]*\)", "", entry["issuer_raw"] or "")
+            if len(matches) != 1 or key(issuer) != key(supplement["publisher_region"] or ""):
+                continue
+            policy = matches[0]
+            block = {"kind": "text", "text": entry["conditions_raw"], "page": entry["page"],
+                     "bbox": entry["bbox"], "section": "독립 총괄표", "section_role": "plan",
+                     "context_year": supplement["document_year"], "quality_flags": entry["quality_flags"]}
+            summary_facts = _facts([block])
+            entry["condition_candidates"] = summary_facts
+            signatures = lambda facts: {(f["field"], f.get("min"), f.get("max"), f.get("percent"),
+                                          f.get("percent_min"), f.get("percent_max"), f.get("operator"))
+                                         for f in facts if f["field"] in {"age", "income"}}
+            summary, body = signatures(summary_facts), signatures(policy["eligibility_candidates"])
+            if not summary or not body or summary <= body:
+                continue
+            reason = "summary_body_condition_difference"
+            reviews.append({"policy_id": policy["policy_id"], "reason": reason,
+                            "status": "requires_review", "summary": summary_facts,
+                            "body": policy["eligibility_candidates"], "page": entry["page"]})
+            if reason not in policy["review_flags"]:
+                policy["review_flags"].append(reason)
+            if policy["eligibility_status"] != "conflict":
+                policy["eligibility_status"] = "requires_review"
+            for chunk in chunks:
+                if chunk["metadata"]["policy_id"] == policy["policy_id"]:
+                    chunk["metadata"]["eligibility_status"] = policy["eligibility_status"]
+                    chunk["metadata"]["verification_status"] = "requires_review"
+                    chunk["metadata"]["quality_flags"] = sorted(set(chunk["metadata"]["quality_flags"]) | {reason})
+                    chunk["page_content"] += "\n검수: 총괄표·본문 조건 차이, 적용범위 확인 필요."
+                    chunk["id"] = digest(f"{policy['document_id']}|{chunk['page_content']}")
 
 
 def _section(text, previous, document_year):
@@ -339,7 +468,7 @@ def _section(text, previous, document_year):
         if "추진계획" in compact:
             year = re.search(r"20\d{2}", compact)
             short = re.search(r"[‘’'`](\d{2})", compact)
-            return {"name": text, "role": "plan", "year": int(year[0]) if year
+            return {"name": text, "role": "future_plan" if "이후" in compact else "plan", "year": int(year[0]) if year
                     else 2000 + int(short[1]) if short else document_year}
         role = ("budget" if "예산" in compact else "schedule" if "일정" in compact
                 else "performance_target" if "성과지표" in compact else previous["role"])
@@ -347,39 +476,95 @@ def _section(text, previous, document_year):
     return previous
 
 
+def _candidate_lines(block):
+    if block["kind"] != "table":
+        return [(line, None, []) for line in block["text"].splitlines()]
+    rows = block["rows"]
+    header = " ".join(str(c or "") for row in rows[:3] for c in row)
+    eligibility_table = bool(re.search(r"지원\s*대상|정책\s*대상|연령\s*기준|소득\s*기준|신청\s*자격", header))
+    result = []
+    notes = [{"text": table_text([row]), "page": block["page"], "bbox": block["bbox"]}
+             for row in rows if table_text([row]).lstrip().startswith(("*", "※", "단,"))]
+    for row in rows:
+        line = table_text([row])
+        if not eligibility_table and not re.search(r"정책\s*대상|사업\s*대상|지원\s*대상|신청\s*자격", line):
+            continue
+        cells = [normalize(c or "") for c in row]
+        subject = cells[0] if cells else None
+        if subject and (re.search(r"지원\s*대상|정책\s*대상|연령|소득|나이|자격", subject)
+                        or re.search(r"\d|세|%", subject)):
+            subject = None
+        result.append((line, subject, notes))
+    return result
+
+
+def _age_mentions(line):
+    line = line.replace("/", " ")  # wrapped table cells; keep offsets and raw evidence
+    ranges = []
+    pattern = (r"(?<!\d)(?:만\s*)?(?P<low>\d{1,2})\s*(?:세\s*)?"
+               r"(?P<low_op>이상|초과)?\s*[~∼～–-]\s*(?:만\s*)?"
+               r"(?P<high>\d{1,2})\s*세\s*(?P<high_op>이하|미만)?")
+    for match in re.finditer(pattern, line):
+        ranges.append(match.span())
+        yield match, {"min": int(match["low"]), "max": int(match["high"]),
+                      "lower_inclusive": match["low_op"] != "초과",
+                      "upper_inclusive": match["high_op"] != "미만",
+                      "age_basis": "만나이" if "만" in match[0] else "unverified"}
+    for match in re.finditer(r"(?<!\d)(?:만\s*)?(\d{1,2})\s*세\s*(이하|미만|이상|초과)", line):
+        if any(a <= match.start() < b for a, b in ranges):
+            continue
+        number, operator = int(match[1]), match[2]
+        bounds = {"min": number, "lower_inclusive": operator == "이상"} if operator in {"이상", "초과"} else {
+            "max": number, "upper_inclusive": operator == "이하"}
+        yield match, {**bounds, "operator": operator, "value": number,
+                      "age_basis": "만나이" if "만" in match[0] else "unverified"}
+
+
 def _facts(blocks):
-    """Conservative rule candidates. Ambiguity, exceptions and scopes stay in evidence."""
+    """Keep row-specific subjects, bounds, exceptions and extraction provenance."""
     facts = []
     for index, b in enumerate(blocks):
-        text = b["text"]
-        if b["section_role"] in {"past_performance", "budget", "schedule", "historical_context", "performance_target"}:
+        if b["section_role"] in {"past_performance", "budget", "schedule", "historical_context", "performance_target", "future_plan"}:
             continue
-        # Tables must not let historical budget values enter eligibility candidates.
-        if b["kind"] == "table":
-            lines = [normalize(" | ".join(c or "" for c in row)) for row in b["rows"]
-                     if re.search(r"정책\s*대상|사업\s*대상|지원\s*대상|신청\s*자격", " ".join(c or "" for c in row))]
-        else:
-            lines = text.splitlines()
-        for line in lines:
-            compact = line.replace(" ", "")
-            qualifiers = [{"text": n["text"], "page": n["page"], "bbox": n["bbox"]}
-                          for n in blocks[index+1:index+3] if n["text"].startswith(("*", "※"))]
+        for line, subject, row_notes in _candidate_lines(b):
+            compact = re.sub(r"\s", "", line)
+            qualifiers = row_notes + [{"text": n["text"], "page": n["page"], "bbox": n["bbox"]}
+                                     for n in blocks[index+1:index+3]
+                                     if n["text"].lstrip().startswith(("*", "※", "단,", "다만"))]
+            for following in blocks[index+1:index+5]:
+                if re.search(r"\(사업\s*내용\)|\(사업비\)|\(추진\s*체계\)", following["text"]):
+                    break
+                if re.search(r"기타\s*조건|우선\s*선발|차순위|예외|병역|군복무|다자녀", following["text"]):
+                    note = {"text": following["text"], "page": following["page"], "bbox": following["bbox"],
+                            "scope_status": "unverified"}
+                    if not any(q["text"] == note["text"] and q["page"] == note["page"] for q in qualifiers):
+                        qualifiers.append(note)
             scopes = re.findall(r"\(([^)]*(?:기준|유형)[^)]*)\)", line)
+            flags = b.get("quality_flags", [])
+            numeric_review = bool(set(flags) & {"ocr_requires_review", "image_text_not_verified", "ocr_failed"})
             base = {"evidence": line, "page": b["page"], "bbox": b["bbox"],
                     "section": b["section"], "context_year": b["context_year"],
-                    "status": "candidate", "scope": scopes or "unverified", "qualifiers": qualifiers}
-            for match in re.finditer(r"(?:만)?\s*(\d{1,2})\s*[~∼～–-]\s*(\d{1,2})\s*세", line):
-                facts.append({**base, "field": "age", "min": int(match[1]), "max": int(match[2]),
-                              "age_basis": "만나이" if match[0].lstrip().startswith("만") else "unverified"})
-            upper = re.search(r"(?:만)?\s*(\d{1,2})\s*세\s*(이하|미만|이상|초과)", line)
-            if upper:
-                number, operator = int(upper[1]), upper[2]
-                facts.append({**base, "field": "age", "operator": operator, "value": number,
-                              "age_basis": "만나이" if upper[0].lstrip().startswith("만") else "unverified"})
+                    "status": "candidate", "scope": scopes or "unverified", "subject": subject,
+                    "condition_group": digest(f"{b['page']}|{b['bbox']}|{subject or line}")[:16],
+                    "qualifiers": qualifiers, "quality_flags": flags,
+                    "verification_status": "requires_review" if numeric_review else "candidate",
+                    "extraction_method": b.get("extraction_method", "native"),
+                    "applicability_text": line,
+                    "exceptions": re.findall(r"(?:단[,，]|다만|※|예외)[^;\n]+", line)}
+            for match, values in _age_mentions(line):
+                # Explicit exception subjects must not overwrite the ordinary age range.
+                prefix = line[:match.start()]
+                special = re.search(r"(군필자|군복무자|병역이행자|차상위이하|차상위초과|수급자|일반청년)(?:는|은|의)?\s*$", prefix)
+                age_subject = subject or (special[1] if special else None)
+                invalid = values.get("min", 0) > values.get("max", 99)
+                facts.append({**base, "field": "age", **values, "subject": age_subject,
+                              "verification_status": "requires_review" if invalid or numeric_review else "candidate"})
             if "연령무관" in compact or "나이제한없" in compact:
                 facts.append({**base, "field": "age", "status": "unrestricted"})
             if re.search(r"미취업|취업준비|구직자|재직|자영업|프리랜서|무주택|가구소득|중위소득|월평균소득|거주|주민등록|병역|중복|제외", line):
                 facts.append({**base, "field": "eligibility_text"})
+            if re.search(r"우선\s*선발|차순위|우대|예외|다자녀|장애인", line):
+                facts.append({**base, "field": "selection_text"})
             for field_name, expression in [
                     ("employment", r"미취업(?:자)?|취업준비생|구직자|재직자|자영업자|프리랜서|취[·‧·]창업무관"),
                     ("education", r"대학원생|대학생|재학생|졸업예정자|졸업자|휴학생|비학생|학생여부무관"),
@@ -389,16 +574,60 @@ def _facts(blocks):
                 values = sorted(set(re.findall(expression, compact)))
                 if values:
                     facts.append({**base, "field": field_name, "mentions": values})
-            for match in re.finditer(r"(기준중위소득|중위소득|(?:도시근로자)?(?:가구원수별)?(?:가구당)?월평균소득)(\d+(?:\.\d+)?)%\s*(이하|미만|이상|초과)?", compact):
-                facts.append({**base, "field": "income", "basis": match[1],
-                              "percent": float(match[2]), "operator": match[3] or "unverified"})
+            basis = r"(기준중위소득|중위소득|(?:도시근로자)?(?:가구원수별)?(?:가구당)?월평균소득)"
+            pattern = basis + r"(\d+(?:\.\d+)?)%(이하|미만|이상|초과)?(?:[~∼～–-](\d+(?:\.\d+)?)%(이하|미만|이상|초과)?)?"
+            income_text = re.sub(r"(?<=소득)/(?=\d)", "", compact)
+            for match in re.finditer(pattern, income_text):
+                values = {"percent": float(match[2]), "operator": match[3] or "unverified"}
+                if match[4]:
+                    values = {"percent_min": float(match[2]), "percent_max": float(match[4]),
+                              "lower_inclusive": match[3] != "초과", "upper_inclusive": match[5] != "미만"}
+                facts.append({**base, "field": "income", "basis": match[1], **values})
     return facts
+
+
+def _condition_conflicts(facts):
+    """Different named cohorts are not a contradiction; unknown overlaps need review."""
+    reasons = []
+    for field_name in ("age", "income"):
+        candidates = [f for f in facts if f["field"] == field_name]
+        conflict = False
+        for i, first in enumerate(candidates):
+            for second in candidates[i+1:]:
+                if first["context_year"] != second["context_year"]:
+                    continue
+                if first.get("subject") and second.get("subject") and first["subject"] != second["subject"]:
+                    continue
+                if field_name == "income" and first["basis"].replace("기준", "") != second["basis"].replace("기준", ""):
+                    continue
+                keys = ("status", "min", "max", "lower_inclusive", "upper_inclusive", "age_basis") if field_name == "age" else (
+                    "percent", "operator", "percent_min", "percent_max", "lower_inclusive", "upper_inclusive")
+                if tuple(first.get(k) for k in keys) != tuple(second.get(k) for k in keys):
+                    conflict = True
+        if conflict:
+            reasons.append(field_name + "_scope_conflict")
+    return reasons
+
+
+def _unparsed_age(block):
+    if block["section_role"] != "plan":
+        return False
+    if block["kind"] == "table":
+        for index, row in enumerate(block["rows"][:3]):
+            age_column = next((i for i, c in enumerate(row) if "연령기준" in re.sub(r"\s", "", c or "")), None)
+            if age_column is not None:
+                values = [row[age_column] or "" for row in block["rows"][index+1:] if age_column < len(row)]
+                return any(re.search(r"\d", value) and not list(_age_mentions(value)) for value in values)
+        return False
+    return bool(re.search(r"(?:연령|나이)\s*기준[)）]?\s*[:：]?\s*(?:만\s*)?\d", block["text"])) and not list(_age_mentions(block["text"]))
 
 
 def build_records(pages, source, document_id, context, max_chars=2200):
     policies, chunks, reviews = [], [], []
     groups = []
-    for page in pages:
+    for page in _partition_pages(pages):
+        if page["document_role"] != "policy":
+            continue
         heading = _heading(page) if context["document_type"] != "overview" else None
         if heading:
             if not groups or (groups[-1]["task_id"], groups[-1]["title"]) != heading:
@@ -420,23 +649,46 @@ def build_records(pages, source, document_id, context, max_chars=2200):
                     section = _section(b["text"], section, context["document_year"])
                 blocks.append({**b, "page": page["page"], "printed_page": page["printed_page"],
                                "section": section["name"], "section_role": section["role"],
-                               "context_year": section["year"], "quality_flags": page["quality_flags"]})
+                               "context_year": section["year"], "quality_flags": page["quality_flags"],
+                               "extraction_method": page.get("extraction_method", "native")})
         facts = _facts(blocks) if group["task_id"] != "frontmatter" else []
-        age = [f for f in facts if f["field"] == "age"]
-        signatures = {(f.get("status"), f.get("min"), f.get("max"), f.get("operator"), f.get("value")) for f in age}
-        conflicts = ["age_scope_conflict"] if len(signatures) > 1 else []
+        money = [{**m, "page": b["page"], "section_role": b["section_role"],
+                  "context_year": b["context_year"],
+                  "evidence": b["text"], "bbox": b["bbox"], "quality_flags": b["quality_flags"],
+                  "extraction_method": b.get("extraction_method", "native"),
+                  "verification_status": "requires_review" if set(b["quality_flags"]) & {
+                      "ocr_requires_review", "image_text_not_verified", "ocr_failed"} else "candidate"}
+                 for b in blocks for m in money_mentions(b["text"])]
+        conflicts = _condition_conflicts(facts)
         for flag in conflicts:
-            reviews.append({"policy_id": pid, "reason": flag, "evidence": age})
+            reviews.append({"policy_id": pid, "reason": flag,
+                            "evidence": [f for f in facts if f["field"] == flag.split("_")[0]]})
+        numeric = [f for f in facts if f["field"] in {"age", "income"} and f["verification_status"] == "requires_review"]
+        numeric += [{**m, "field": "money"} for m in money if m["verification_status"] == "requires_review"]
+        if numeric:
+            reviews.append({"policy_id": pid, "reason": "numeric_evidence_requires_review", "evidence": numeric})
+        year_mismatches = {(b["section"], b["context_year"]) for b in blocks
+                           if b["section_role"] == "plan" and re.match(r"\d+\.", b["section"])
+                           and b["context_year"] not in (None, context["document_year"])}
+        for name, year in sorted(year_mismatches):
+            reviews.append({"policy_id": pid, "reason": "plan_year_mismatch", "section": name,
+                            "context_year": year, "document_year": context["document_year"]})
+        review_flags = conflicts + (["numeric_evidence_requires_review"] if numeric else []) + (["plan_year_mismatch"] if year_mismatches else [])
+        unparsed = [b for b in blocks if _unparsed_age(b)]
+        if unparsed:
+            review_flags.append("unparsed_age_condition")
+            reviews.append({"policy_id": pid, "reason": "unparsed_age_condition",
+                            "evidence": [{"page": b["page"], "bbox": b["bbox"], "text": b["text"]} for b in unparsed]})
         # Publisher location is NOT converted to an applicant residence requirement.
         policy = {"policy_id": pid, "document_id": document_id, "source": source, **context,
                   "task_id": group["task_id"], "policy_name": group["title"],
                   "page_start": group["pages"][0]["page"], "page_end": group["pages"][-1]["page"],
-                  "eligibility_status": "conflict" if conflicts else "unverified",
-                  "eligibility_candidates": facts, "review_flags": conflicts,
+                  "pages": [p["page"] for p in group["pages"]],
+                  "eligibility_status": "conflict" if conflicts else "requires_review" if review_flags else "unverified",
+                  "eligibility_candidates": facts, "review_flags": review_flags,
                   "applicant_type": "unverified", "beneficiary_type": "unverified",
-                  "money_mentions": [{**m, "page": b["page"], "section_role": b["section_role"],
-                                      "evidence": b["text"], "bbox": b["bbox"]}
-                                     for b in blocks for m in money_mentions(b["text"])],
+                  "applicant_residence_status": "unverified",
+                  "money_mentions": money,
                   "raw_text": "\n".join(p["raw_text"] for p in group["pages"])}
         policies.append(policy)
         batch = []
@@ -457,7 +709,7 @@ def build_records(pages, source, document_id, context, max_chars=2200):
                       f"문서연도: {context['document_year']} | 발행지역: {context['publisher_region'] or '중앙'}\n"
                       f"구간: {first['section']} | 내용연도: {first['context_year']} | 유형: {first['section_role']}\n"
                       f"근거: {source} | PDF 쪽: {','.join(map(str, page_ids))}\n"
-                      f"자격조건 검수: {'적용범위 충돌, 확인 필요' if conflicts else '자동 추출 후보, 자격 확정 아님'}\n"
+                      f"자격조건 검수: {'적용범위 충돌, 확인 필요' if conflicts else '조건 근거 검토 필요' if review_flags else '자동 추출 후보, 자격 확정 아님'}\n"
                       f"추출 검수: {', '.join(quality) if quality else '자동 추출, 원문 대조 필요'}\n"
                       "주의: 시행계획 자료이며 현재 모집·신청자격은 공식 공고 확인 필요.\n")
             content = header + "\n".join(b["text"] for b in batch)
@@ -466,7 +718,14 @@ def build_records(pages, source, document_id, context, max_chars=2200):
                         "page": page_ids[0], "pages": page_ids, "section": first["section"],
                         "section_role": first["section_role"], "context_year": first["context_year"],
                         **context, "evidence": refs, "eligibility_status": policy["eligibility_status"],
-                        "quality_flags": sorted(set(quality) | set(conflicts)),
+                        "quality_flags": sorted(set(quality) | set(review_flags)),
+                        "review_flags": review_flags,
+                        "record_type": "policy_evidence",
+                        "applicant_residence_status": "unverified",
+                        "verification_status": "requires_review" if review_flags else "candidate",
+                        "eligibility_candidates": [f for f in facts if f["page"] in page_ids and f["section"] == first["section"]],
+                        "money_candidates": [m for m in money if m["page"] in page_ids and m["section_role"] == first["section_role"]
+                                             and m["context_year"] == first["context_year"]],
                         "preprocessing_version": VERSION}
             chunks.append({"id": digest(f"{document_id}|{content}"), "page_content": content, "metadata": metadata})
             batch.clear()
@@ -491,7 +750,10 @@ def preprocess_pdf(path, source_name=None, settings=None) -> Result:
     content_hash = digest(path.read_bytes())
     context = source_context(source)
     pages, reviews, total = extract_pages(path, settings)
+    pages = _partition_pages(pages)
     policies, chunks, conflicts = build_records(pages, source, document_id, context, settings.max_chars)
+    supplements = _supplement_records(pages, source, context)
+    _link_summary_evidence(supplements, policies, chunks, conflicts)
     # Text-empty image pages must stay visible in the report, never silently disappear.
     if not chunks:
         has_text = any(p["raw_text"].strip() for p in pages)
@@ -504,5 +766,7 @@ def preprocess_pdf(path, source_name=None, settings=None) -> Result:
                                  + digest(json.dumps(chunks, ensure_ascii=False, sort_keys=True)))[:24],
                 "settings": settings.__dict__, "total_pages": total, "processed_pages": len(pages),
                 "partial": partial, "policy_count": len([p for p in policies if p['task_id'] != 'frontmatter']),
-                "chunk_count": len(chunks), "review_count": len(reviews) + len(conflicts), **context}
-    return Result(manifest, pages, policies, chunks, reviews + conflicts)
+                "chunk_count": len(chunks), "review_count": len(reviews) + len(conflicts),
+                "supplement_page_count": len(supplements),
+                "summary_entry_count": sum(len(s["entries"]) for s in supplements), **context}
+    return Result(manifest, pages, policies, chunks, reviews + conflicts, supplements)

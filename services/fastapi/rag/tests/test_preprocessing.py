@@ -7,9 +7,16 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from rag.utils.policy_preprocessing import (Settings, TASK, build_records, normalize,
-                                           source_context, _heading, _section, _facts, table_text, money_mentions)
-from rag.utils.web_preprocessing import official_url, canonical_url, parse_html, web_chunks, _fetch
+from rag.utils.policy_preprocessing import (
+    Settings, TASK, build_records, normalize,
+    source_context, _heading, _section, _facts,
+    table_text, money_mentions,
+    _partition_pages, _supplement_records, _condition_conflicts,
+    _link_summary_evidence,
+)
+from rag.utils.web_preprocessing import (
+    official_url, canonical_url, parse_html, web_chunks, _fetch,
+)
 from rag.retrieval import faiss_store
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
@@ -23,6 +30,189 @@ def page(number, lines):
 
 
 class PolicyTests(unittest.TestCase):
+    def facts(self, text, **changes):
+        block = dict(kind='text', text=text, page=1, bbox=[0, 0, 100, 20],
+                     section='사업 대상', section_role='plan', context_year=2026,
+                     quality_flags=[])
+        block.update(changes)
+        return _facts([block])
+
+    def test_age_range_keeps_both_bounds_without_duplicate_single_bound(self):
+        for text in ('19세 이상~34세 이하', '19~34세 이하', '만 19세 이상 ~ 만 34세 이하'):
+            with self.subTest(text=text):
+                ages = [f for f in self.facts(text) if f['field'] == 'age']
+                self.assertEqual(len(ages), 1)
+                self.assertEqual((ages[0]['min'], ages[0]['max']), (19, 34))
+                self.assertTrue(ages[0]['lower_inclusive'])
+                self.assertTrue(ages[0]['upper_inclusive'])
+        age = next(f for f in self.facts('19세 초과~34세 미만') if f['field'] == 'age')
+        self.assertFalse(age['lower_inclusive'])
+        self.assertFalse(age['upper_inclusive'])
+
+    def test_explicit_subject_and_military_exception_survive(self):
+        facts = self.facts('일반청년 19~34세 이하, 단, 군필자는 39세 이하')
+        ages = [f for f in facts if f['field'] == 'age']
+        self.assertEqual(len(ages), 2)
+        self.assertEqual([f['subject'] for f in ages], ['일반청년', '군필자'])
+        self.assertTrue(ages[0]['exceptions'])
+        self.assertEqual(ages[1]['max'], 39)
+        self.assertEqual(_condition_conflicts(facts), [])
+
+    def test_table_cohorts_keep_age_and_income_on_the_same_row(self):
+        rows = [['지원대상', '연령기준', '소득기준'],
+                ['차상위이하', '만 15세 ~ 만 39세', '중위소득 50% 이하'],
+                ['차상위초과', '만 19세 ~ 만 34세', '중위소득\n50% 초과 ~ 100% 이하']]
+        facts = self.facts(table_text(rows), kind='table', rows=rows)
+        ages = [f for f in facts if f['field'] == 'age']
+        self.assertEqual([(f['subject'], f['min'], f['max']) for f in ages],
+                         [('차상위이하', 15, 39), ('차상위초과', 19, 34)])
+        income = next(f for f in facts if f['field'] == 'income' and f['subject'] == '차상위초과')
+        self.assertEqual((income['percent_min'], income['percent_max']), (50, 100))
+        self.assertFalse(income['lower_inclusive'])
+        self.assertEqual(income['condition_group'], ages[1]['condition_group'])
+        self.assertEqual(_condition_conflicts(facts), [])
+
+    def test_ocr_age_and_income_require_evidence_review(self):
+        facts = self.facts('19세 이상~34세 이하, 중위소득 100% 이하',
+                           quality_flags=['ocr_requires_review'], extraction_method='native+ocr')
+        numeric = [f for f in facts if f['field'] in {'age', 'income'}]
+        self.assertEqual(len(numeric), 2)
+        self.assertTrue(all(f['verification_status'] == 'requires_review' for f in numeric))
+        self.assertTrue(all(f['extraction_method'] == 'native+ocr' for f in numeric))
+
+    def test_future_plan_conditions_are_not_current_eligibility(self):
+        section = _section('□ 연도별 추진계획 (‘27년 이후)', {'role':'plan','year':2026,'name':''}, 2026)
+        self.assertEqual((section['role'], section['year']), ('future_plan', 2027))
+        self.assertEqual(self.facts('19~39세 청년 지원', section_role=section['role'], context_year=section['year']), [])
+
+    def test_priority_selection_and_following_exceptions_remain_in_evidence(self):
+        blocks = [dict(kind='text',text=text,page=55,bbox=[0,i*20,100,i*20+15],section='대상',
+                       section_role='plan',context_year=2026,quality_flags=[])
+                  for i,text in enumerate(['- (연령 기준) 19~39세', '- (기타 조건) 우선선발 및 차순위선발',
+                                           '▶ 우선선발: 장애인, 다자녀 가구', 'ㅇ (사업 내용) 행정지원'])]
+        facts = _facts(blocks)
+        age = next(f for f in facts if f['field']=='age')
+        self.assertTrue(any('다자녀' in q['text'] for q in age['qualifiers']))
+        self.assertTrue(any(f['field']=='selection_text' and '장애인' in f['evidence'] for f in facts))
+
+    def test_trailing_labels_and_regional_number_formats_start_policies(self):
+        cases = [('청년내일저축계좌 지원사업 공통', '공통', '청년내일저축계좌 지원사업'),
+                 ('공동캠퍼스 조성 공통', '공통', '공동캠퍼스 조성'),
+                 ('기타 공동캠퍼스 조성 공통', '기타', '공동캠퍼스 조성'),
+                 ('1-4 전북 청년 직무인턴 운영 자체', '1-4', '전북 청년 직무인턴 운영'),
+                 ('1-3-제주-1-① 제주시 대학생 아르바이트 자체', '1-3-제주-1-①', '제주시 대학생 아르바이트'),
+                 ('1-3-제주-1-② 서귀포시 대학생 아르바이트 자체', '1-3-제주-1-②', '서귀포시 대학생 아르바이트')]
+        for text, task, title in cases:
+            with self.subTest(text=text):
+                self.assertEqual(_heading(page(1, [text, '1. 사업 개요'])), (task, title))
+        self.assertIsNone(_heading(page(1, ['1-4 예산 항목', '일반 목록'])))
+
+    def test_summary_annex_does_not_inherit_last_policy(self):
+        pages = [page(1, ['1-1-울산-1 마지막 정책 자체', '1. 사업 개요', '청년 지원 내용 '*20]),
+                 page(2, ['Ⅲ. 기초 지방자치단체 자체사업 총괄', '다른 사업 50~70세 대상 '*10]),
+                 page(3, ['기초 지자체명 분야 사업명 주요내용', '다른 사업 표 내용 '*20])]
+        policies, chunks, _ = build_records(pages, 'ulsan.pdf', 'id', source_context('(울산) 2026.pdf'))
+        self.assertEqual(policies[0]['page_end'], 1)
+        self.assertEqual(policies[0]['pages'], [1])
+        self.assertNotIn('다른 사업', policies[0]['raw_text'])
+        self.assertTrue(all(c['metadata']['pages'] == [1] for c in chunks))
+        supplements = _supplement_records(_partition_pages(pages), 'ulsan.pdf', source_context('(울산) 2026.pdf'))
+        self.assertEqual([s['page'] for s in supplements], [2, 3])
+        self.assertTrue(all(s['policy_link_status'] == 'unverified' for s in supplements))
+
+    def test_centred_appendix_divider_and_later_policy_are_separate(self):
+        divider = page(2, ['붙 임'])
+        divider['blocks'][0]['bbox'] = [100, 400, 500, 440]
+        pages = [page(1, ['1-1-울산-1 첫 정책', '1. 사업 개요']), divider,
+                 page(3, ['1-1-울산-2 둘째 정책', '1. 사업 개요'])]
+        tagged = _partition_pages(pages)
+        self.assertEqual([p['document_role'] for p in tagged], ['policy', 'appendix', 'policy'])
+
+    def test_contents_and_policy_specific_attachment_are_not_global_annexes(self):
+        contents = page(1, ['목 차', 'Ⅲ. 기초지방자치단체 자체사업 총괄 403'])
+        reference = page(2, ['붙임 단위과제 주요 내용', '이 사업의 과제 내용 '*20])
+        before = page(3, ['참고 5대 분야 주요사업 추진 실적', '2025년 평가 내용 '*20])
+        self.assertEqual([p['document_role'] for p in _partition_pages([contents, reference, before])],
+                         ['policy', 'policy', 'policy'])
+
+    def test_same_subject_summary_body_disagreement_keeps_both(self):
+        pages = [page(1, ['1-1-울산-1 청년 사업 자체', '1. 사업 개요', '19~34세 지원 내용 '*10])]
+        context = source_context('(울산) 2026.pdf')
+        policies, chunks, reviews = build_records(pages, 'ulsan.pdf', 'id', context)
+        supplements = [{**context, 'entries': [{'policy_name': '청년 사업', 'issuer_raw': '울산광역시',
+                        'conditions_raw': '19~39세', 'page': 2, 'bbox': [0,0,100,50],
+                        'quality_flags': [], 'link_status': 'requires_review'}]}]
+        _link_summary_evidence(supplements, policies, chunks, reviews)
+        self.assertEqual(reviews[-1]['reason'], 'summary_body_condition_difference')
+        self.assertEqual(policies[0]['eligibility_status'], 'requires_review')
+        self.assertTrue(all(c['metadata']['eligibility_status'] == 'requires_review' for c in chunks))
+        self.assertEqual(next(f for f in policies[0]['eligibility_candidates'] if f['field']=='age')['max'], 34)
+        self.assertEqual(next(f for f in supplements[0]['entries'][0]['condition_candidates'] if f['field']=='age')['max'], 39)
+        self.assertEqual(supplements[0]['entries'][0]['link_status'], 'requires_review')
+
+    def test_same_policy_name_in_other_municipality_is_not_linked(self):
+        context = source_context('(울산) 2026.pdf')
+        policies, chunks, reviews = build_records([page(1, ['1-1-울산-1 청년 사업 자체', '1. 사업 개요',
+                                                           '19~34세 지원 '*20])], 'ulsan.pdf', 'id', context)
+        supplements = [{**context, 'entries': [{'policy_name': '청년 사업', 'issuer_raw': '울산광역시 남구',
+                        'conditions_raw': '19~39세', 'page': 2, 'bbox': [0,0,100,50],
+                        'quality_flags': [], 'link_status': 'requires_review'}]}]
+        _link_summary_evidence(supplements, policies, chunks, reviews)
+        self.assertEqual(policies[0]['review_flags'], [])
+        self.assertEqual(supplements[0]['entries'][0]['name_candidates'], [policies[0]['policy_id']])
+        self.assertEqual(supplements[0]['entries'][0]['link_status'], 'requires_review')
+
+    def test_summary_rows_preserve_issuer_years_and_unverified_link(self):
+        pg = page(2, ['Ⅲ. 자체사업 총괄'])
+        rows = [['기초 지자체명', '분야', '사업명', '주요내용', '’25예산', '’26예산'],
+                ['울산광역시 남구', '주거', '청년 주거 지원', '19세 이상~34세 이하', '10', '20']]
+        pg['blocks'].append(dict(kind='table', rows=rows, text=table_text(rows), bbox=[30, 100, 550, 700]))
+        entry = _supplement_records(_partition_pages([pg]), 'ulsan.pdf', source_context('(울산) 2026.pdf'))[0]['entries'][0]
+        self.assertEqual(entry['issuer_raw'], '울산광역시 남구')
+        self.assertEqual(entry['year_values_raw'], {'2025': '10', '2026': '20'})
+        self.assertEqual(entry['link_status'], 'requires_review')
+        self.assertEqual(entry['residence_status'], 'unverified')
+        rows[0][-1] = '2‘6예산'
+        uncertain = _supplement_records(_partition_pages([pg]), 'ulsan.pdf', source_context('(울산) 2026.pdf'))[0]['entries'][0]
+        self.assertEqual(uncertain['year_mapping_status'], 'requires_review')
+        self.assertNotIn('2026', uncertain['year_values_raw'])
+        self.assertIn('2‘6예산', uncertain['year_headers_raw'])
+
+    def test_ocr_money_and_plan_year_mismatch_reach_chunks(self):
+        pg = page(1, ['1-1-울산-1 청년 사업 자체', '1. 사업 개요', '3. ’25년도 추진계획', '사업비 100만원 '*10])
+        pg['quality_flags'] = ['ocr_requires_review']
+        pg['extraction_method'] = 'native+ocr'
+        policies, chunks, reviews = build_records([pg], 'ulsan.pdf', 'id', source_context('(울산) 2026.pdf'))
+        reasons = {r['reason'] for r in reviews}
+        self.assertTrue({'numeric_evidence_requires_review', 'plan_year_mismatch'} <= reasons)
+        self.assertEqual(policies[0]['money_mentions'][0]['verification_status'], 'requires_review')
+        self.assertEqual(policies[0]['money_mentions'][0]['context_year'], 2025)
+        self.assertTrue(all(c['metadata']['eligibility_status'] == 'requires_review' for c in chunks))
+
+    def test_unparsed_age_condition_is_visible_for_review(self):
+        pg = page(1, ['1-1-울산-1 청년 사업 자체', '1. 사업 개요', '- (연령 기준) 19 이상 34 이하', '지원 내용 '*20])
+        policies, chunks, reviews = build_records([pg], 'ulsan.pdf', 'id', source_context('(울산) 2026.pdf'))
+        self.assertIn('unparsed_age_condition', policies[0]['review_flags'])
+        self.assertTrue(any(r['reason'] == 'unparsed_age_condition' for r in reviews))
+        self.assertTrue(all(c['metadata']['verification_status'] == 'requires_review' for c in chunks))
+
+    def test_rag_evidence_keeps_policy_name_conditions_and_source(self):
+        from app.retrieval.policy_search import RAGRequest, search_policies
+        from unittest.mock import Mock
+        pg = page(180, ['청년내일저축계좌 지원사업 공통', '1. 사업 개요', '일반청년 만19세 이상~만34세 이하', '지원 내용 '*20])
+        _, chunks, _ = build_records([pg], 'ulsan.pdf', 'id', source_context('(울산) 2026.pdf'))
+        chunk = next(c for c in chunks if c['metadata']['eligibility_candidates'])
+        store = Mock()
+        store.similarity_search_with_score.return_value = [(Document(page_content=chunk['page_content'], metadata=chunk['metadata']), .1)]
+        response = search_policies(RAGRequest(prompt='청년내일저축계좌', source='pdf'), store)
+        metadata = response.documents[0].metadata
+        self.assertEqual(metadata['title'], '청년내일저축계좌 지원사업')
+        self.assertEqual(metadata['source'], 'ulsan.pdf')
+        self.assertEqual(metadata['pages'], [180])
+        self.assertEqual(metadata['publisher_region'], '울산광역시')
+        age = next(f for f in metadata['eligibility_candidates'] if f['field'] == 'age')
+        self.assertEqual((age['min'], age['max']), (19, 34))
+
     def test_korean_nfc_and_task_number_survive(self):
         self.assertEqual(normalize("청년\u200b  Ⅲ-1-1-(1)"), "청년 Ⅲ-1-1-(1)")
         self.assertTrue(TASK.match("1-1-서울-3 서울영커리언스 인턴십"))
