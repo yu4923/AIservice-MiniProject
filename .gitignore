@@ -70,3 +70,6 @@ tests/
 /services/fastapi/jwt_log/
 /services/fastapi/rag/data/
 .pytest_cache/
+
+# Existing local PDF input directory used by the root Compose
+/services/rag/documents/**

@@ -2,6 +2,7 @@
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Brand from '../components/Brand.vue'
+import { emptyProfile, loadProfile, saveProfile, clearProfile } from '../api/profileSession'
 import { demoMode, login, signup, ask, clearToken, recommendPolicies, checkAuth, logoutSession } from '../api/youth'
 
 const currentRoute = useRoute()
@@ -14,7 +15,7 @@ const logoutError=ref('')
 let authEpoch=0
 onMounted(async()=>{
  const epoch=authEpoch
- try{const session=await checkAuth();if(epoch!==authEpoch||!session?.ok)return;user.value={id:session.id,nickname:session.id};loginId.value=session.id}
+ try{const session=await checkAuth();if(epoch!==authEpoch||!session?.ok)return;user.value={id:session.id,nickname:session.id};restoreSurvey(session.id)}
  catch(e){if(epoch===authEpoch&&e.status===401){user.value=null;loginId.value=''}}
 })
 const username=ref(''), password=ref(''), showPassword=ref(false), error=ref(''), success=ref(''), busy=ref(false)
@@ -23,9 +24,17 @@ const authPage=computed(()=>['/login','/signup'].includes(route.value))
 const surveyPage=computed(()=>route.value.startsWith('/survey'))
 const step=computed(()=>Math.min(5,Math.max(1,Number(route.value.split('/')[2])||1)))
 const regions=['서울','부산','대구','인천','광주','대전','울산','세종','경기','강원','충북','충남','전북','전남','경북','경남','제주']
-const profile=ref({age:24,region:'',statuses:[],interests:[],details:[],income:null,employment_status:null,household_size:null})
+const profile=ref(emptyProfile())
 const householdInput=ref('')
 const profileError=ref('')
+function restoreSurvey(id){
+ loginId.value=''
+ try{profile.value=loadProfile(sessionStorage,id)}catch{profile.value=emptyProfile()}
+ householdInput.value=profile.value.household_size===null?'':String(profile.value.household_size)
+ loginId.value=id
+}
+watch(profile,value=>{try{saveProfile(sessionStorage,loginId.value,value)}catch{}},{deep:true,flush:'sync'})
+
 const ageWheel=ref(null)
 const ages=Array.from({length:121},(_,i)=>120-i)
 function selectAge(age){profile.value.age=age;const wheel=ageWheel.value;if(wheel)wheel.scrollTo({top:(120-age)*wheel.clientHeight/3,behavior:'smooth'})}
@@ -87,7 +96,7 @@ async function submitAuth(){
   if(p.length<8||p.length>64||!/^[a-zA-Z0-9!@#$%^&*()_+=\-]+$/.test(p)||kinds<2){error.value='비밀번호는 공백 없이 8~64자, 영문·숫자·특수문자 중 2종류 이상 입력해 주세요.';return}
  }
  busy.value=true
- try{if(isSignup.value){await signup(username.value,password.value);password.value='';go('/login');success.value=demoMode?'데모 가입 화면 확인 완료! 실제 계정은 생성되지 않았어요.':'가입이 완료됐어요. 로그인해 주세요.'}else{const data=await login(username.value,password.value);user.value=data.user||{nickname:username.value};loginId.value=username.value;try{sessionStorage.setItem('youth-compass:display-id',loginId.value)}catch{/* display name storage is optional */}password.value='';go('/home')}}catch(e){error.value=e.message}finally{busy.value=false}
+ try{if(isSignup.value){await signup(username.value,password.value);password.value='';go('/login');success.value=demoMode?'데모 가입 화면 확인 완료! 실제 계정은 생성되지 않았어요.':'가입이 완료됐어요. 로그인해 주세요.'}else{const data=await login(username.value,password.value);user.value=data.user||{nickname:username.value};restoreSurvey(username.value);try{sessionStorage.setItem('youth-compass:display-id',loginId.value)}catch{/* display name storage is optional */}password.value='';go('/home')}}catch(e){error.value=e.message}finally{busy.value=false}
 }
 function next(){if(!stepValid.value)return;if(step.value===5||step.value===4&&!profile.value.interests.includes('employment'))finish();else go('/survey/'+(step.value+1))}
 const policies=ref([]),result=ref(null),question=ref(''),messages=ref([]),chatBusy=ref(false),recommendBusy=ref(false),recommendError=ref(''),chatError=ref(''),source=ref('web')
@@ -103,7 +112,7 @@ async function submitExtraProfile(){
 }
 async function finish(){if(recommendBusy.value)return;await go('/chat');await recommend()}
 async function recommend(){if(recommendBusy.value)return;recommendError.value='';result.value=null;policies.value=[];recommendBusy.value=true;try{const r=await recommendPolicies(profile.value);result.value=r;policies.value=Array.isArray(r.policies)?r.policies:[]}catch(e){recommendError.value=e.message;if(e.status===401){clearToken();user.value=null}}finally{recommendBusy.value=false}}
-async function sendQuestion(text){if(chatBusy.value)return;const q=(text||question.value).trim();if(!q)return;chatError.value='';if(q.length>1000){chatError.value='질문은 1000자 이하로 입력해 주세요.';return}question.value=q;chatBusy.value=true;try{const r=await ask(q);messages.value.push({question:q,...r});question.value=''}catch(e){chatError.value=e.message;if(e.status===401){clearToken();user.value=null}}finally{chatBusy.value=false}}
+async function sendQuestion(text){if(chatBusy.value)return;const q=(text||question.value).trim();if(!q)return;chatError.value='';if(q.length>1000){chatError.value='질문은 1000자 이하로 입력해 주세요.';return}question.value=q;chatBusy.value=true;try{const r=await ask(q,profile.value);messages.value.push({question:q,...r});question.value=''}catch(e){chatError.value=e.message;if(e.status===401){clearToken();user.value=null}}finally{chatBusy.value=false}}
 const selectedPolicy=ref(null)
 const voiceNotice=ref('')
 const exampleRows=[[0,1,0],[3,2,3,2]]
@@ -113,7 +122,7 @@ function sourceUrl(s){const value=typeof s==='string'?s:s.url;try{const u=new UR
 async function logout(){
  if(busy.value)return
  busy.value=true;logoutError.value='';authEpoch++
- try{await logoutSession();clearToken();user.value=null;loginId.value='';username.value='';password.value='';try{sessionStorage.removeItem('youth-compass:display-id')}catch{/* optional storage */}messages.value=[];policies.value=[];result.value=null;profile.value={age:24,region:'',statuses:[],interests:[],details:[],income:null,employment_status:null,household_size:null};householdInput.value='';await go('/')}
+ try{await logoutSession();clearToken();user.value=null;loginId.value='';try{clearProfile(sessionStorage)}catch{};username.value='';password.value='';try{sessionStorage.removeItem('youth-compass:display-id')}catch{/* optional storage */}messages.value=[];policies.value=[];result.value=null;profile.value=emptyProfile();householdInput.value='';await go('/')}
  catch(e){logoutError.value=e.message}
  finally{busy.value=false}
 }

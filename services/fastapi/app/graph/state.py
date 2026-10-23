@@ -24,6 +24,8 @@ class ScopeDecision(BaseModel):
 
 class EvidenceDecision(BaseModel):
     sufficient: bool
+    # Policy facts can be answerable even when current recruitment is unverified.
+    application_status_verified: bool = False
     usable_ids: list[str]
     missing_information: list[str]
     reason: str

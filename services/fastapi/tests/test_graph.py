@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.graph.state import (RAGRequest, ScopeDecision, EvidenceDecision, ComparisonResult,
                              PolicyMatch, AnswerDraft)
 from app.graph.workflow import PolicyRagService
+from app.graph.nodes import LLMReasoner
 from app.tools.local_rag import LocalRAGRetriever
 from unittest.mock import Mock, patch
 from app.tools.youth_policy_api import ApiLookupResult
@@ -85,6 +86,84 @@ class GraphTests(unittest.IsolatedAsyncioTestCase):
             result = await PolicyRagService(LocalRAGRetriever(), Reasoner(), Agent()).answer_question(request())
         self.assertEqual(result.status, 'answered')
         self.assertEqual(result.citations[0].origin, 'vector_db')
+
+
+    async def test_policy_facts_answered_with_citations_and_unverified_recruitment_notice(self):
+        class PartialReasoner(Reasoner):
+            async def review(self, payload):
+                return EvidenceDecision(sufficient=True, application_status_verified=False,
+                    usable_ids=['V1'], missing_information=['현재 모집 공고'], reason='정책 개요는 확인 가능')
+            async def compare(self, payload):
+                self.asserted_review = payload['evidence_review']
+                return ComparisonResult(policies=[PolicyMatch(policy_name='테스트 정책',
+                    status='candidate', reason='문서상 정책 내용 확인', missing_fields=[], evidence_ids=['V1'])],
+                    follow_up_question='')
+            async def generate(self, payload):
+                assert not payload['evidence_review']['application_status_verified']
+                return AnswerDraft(answer='2026년 시행계획 103쪽에 청년 월세 지원 내용이 있습니다. [V1]', cited_ids=['V1'])
+        reasoner, agent = PartialReasoner(), Agent()
+        result = await PolicyRagService(Retriever([DOC]), reasoner, agent).answer_question(request())
+        self.assertEqual(result.status, 'answered')
+        self.assertIn('2026년 시행계획', result.answer)
+        self.assertIn('현재 모집 여부·신청 가능 여부: 최신 공식 공고 확인이 필요합니다.', result.answer)
+        self.assertTrue(result.citations)
+        self.assertTrue(result.needs_review)
+        self.assertEqual(result.policies[0].status, 'needs_review')
+        self.assertEqual(agent.calls, 0)
+
+    async def test_planning_document_cannot_verify_current_recruitment(self):
+        class OptimisticReasoner(Reasoner):
+            async def review(self, payload):
+                return EvidenceDecision(sufficient=True, application_status_verified=True,
+                    usable_ids=['V1'], missing_information=[], reason='공식 계획')
+        plan = Document(page_content=DOC.page_content,
+            metadata={**DOC.metadata, 'authority':'planning_document', 'application_status':'unverified'})
+        result = await PolicyRagService(Retriever([plan]), OptimisticReasoner(), Agent()).answer_question(request())
+        self.assertIn('최신 공식 공고 확인', result.answer)
+        self.assertTrue(result.needs_review)
+
+    async def test_no_evidence_still_refuses_and_has_no_citations(self):
+        class EmptyAgent:
+            async def lookup(self, *args): return ApiLookupResult(documents=[], status='no_results')
+        result = await PolicyRagService(Retriever([]), Reasoner(), EmptyAgent()).answer_question(request())
+        self.assertEqual(result.status, 'insufficient')
+        self.assertFalse(result.citations)
+        self.assertNotIn('generate', result.node_path)
+
+    async def test_unrelated_evidence_is_not_promoted_to_supported_answer(self):
+        class IrrelevantReasoner(Reasoner):
+            async def review(self, payload):
+                return EvidenceDecision(sufficient=False, usable_ids=[], missing_information=['관련 본문'], reason='무관')
+        class EmptyAgent:
+            async def lookup(self, *args): return ApiLookupResult(documents=[], status='no_results')
+        result = await PolicyRagService(Retriever([DOC]), IrrelevantReasoner(), EmptyAgent()).answer_question(request())
+        self.assertEqual(result.status, 'insufficient')
+        self.assertFalse(result.citations)
+
+    async def test_verified_recruitment_has_no_blanket_unverified_notice(self):
+        class VerifiedReasoner(Reasoner):
+            async def review(self, payload):
+                return EvidenceDecision(sufficient=True, application_status_verified=True,
+                    usable_ids=['V1'], missing_information=[], reason='현재 공식 공고 확인')
+        result = await PolicyRagService(Retriever([DOC]), VerifiedReasoner(), Agent()).answer_question(request())
+        self.assertNotIn('현재 모집 여부·신청 가능 여부:', result.answer)
+
+    async def test_invalid_generated_citation_still_rejected(self):
+        class InvalidReasoner(Reasoner):
+            async def generate(self, payload):
+                return AnswerDraft(answer='근거 없는 내용 [V999]', cited_ids=['V999'])
+        with self.assertRaises(ValueError):
+            await PolicyRagService(Retriever([DOC]), InvalidReasoner(), Agent()).answer_question(request())
+
+    async def test_partial_answer_review_contract(self):
+        captured = {}
+        class RecordingReasoner(LLMReasoner):
+            async def _ask(self, schema, instruction, payload):
+                captured['instruction'] = instruction
+                return EvidenceDecision(sufficient=True, usable_ids=['V1'], missing_information=['모집 공고'], reason='개요 있음')
+        await RecordingReasoner().review({})
+        self.assertIn('현재 모집 여부·최신 공고·신청 절차가 없다는 이유만으로 정책 개요 안내까지 거절하지 마라', captured['instruction'])
+        self.assertIn('안내할 모든 정책의 공식 공고', captured['instruction'])
 
 
 if __name__ == '__main__': unittest.main()

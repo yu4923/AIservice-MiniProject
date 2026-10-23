@@ -71,15 +71,19 @@ class LLMReasoner:
 
     async def review(self, payload):
         return await self._ask(EvidenceDecision,
-            "공식 청년정책 자료 중 질문에 답하거나 사용자 조건을 비교할 정보를 고르라. "
-            "단순한 키워드 일치나 뉴스 제목만으로 충분하다고 판단하지 마라. "
-            "사용자 정보와 정책 정보의 부족을 구분하라. 여기서는 정책 자료의 충분성만 판단하라. "
-            "기간·연령·지역·소득 등 질문에 필요한 조건이 빠지거나 문서가 서로 충돌하면 "
-            "sufficient=false로 두고 누락 내용을 기록하라. 정책이 사용자와 불일치한다는 이유만으로 "
-            "자료가 부족하다고 판단하지 마라. 그 비교는 다음 단계에서 한다. "
-            "현재 신청 가능 여부는 reference_date와 모집 기간을 확인하라. "
-            "문서명만 있고 공식 출처가 확인되지 않는 경우도 누락 정보로 기록하라. "
-            "usable_ids에는 입력에 실제로 존재하는 문서 ID만 넣어라.", payload)
+            "공식 청년정책 자료 중 질문에 대해 확인된 사실을 안내할 수 있는 근거를 고르라. "
+            "sufficient는 현재 신청 자격을 확정할 수 있다는 뜻이 아니라, 질문에 관련된 정책명·지원 내용·"
+            "문서상 조건·자료 연도 등 일부라도 출처와 함께 안내할 근거가 있다는 뜻이다. "
+            "이런 근거가 있으면 sufficient=true로 하고 확인되지 않은 항목만 missing_information에 기록하라. "
+            "현재 모집 여부·최신 공고·신청 절차가 없다는 이유만으로 정책 개요 안내까지 거절하지 마라. "
+            "질문이 현재 신청 가능 여부를 묻더라도 확인된 정책 내용은 안내하되 현재 가능 여부는 미확인으로 남겨라. "
+            "연령·소득 등 조건 충돌은 해당 조건을 확정하지 말라는 뜻이며, 다른 확인된 정책 내용 전체를 버리지 마라. "
+            "관련 정책 본문이 없거나 출처가 없거나, 키워드·제목만 있고 안내할 내용이 없으면 sufficient=false다. "
+            "정책이 사용자와 불일치하거나 사용자 소득이 없다는 이유만으로 근거가 없다고 판단하지 마라. "
+            "로컬 PDF도 source 문서명과 page가 있으면 문서 출처로 사용할 수 있다. 공식 URL을 만들어내지 마라. "
+            "application_status_verified는 reference_date 기준 모집 중임 또는 모집 종료임을 명시한 "
+            "안내할 모든 정책의 공식 공고 근거가 있을 때만 true다. 시행계획·예산·지급 일정만으로는 true가 아니다. "
+            "usable_ids에는 실제로 안내할 근거가 있는 입력 문서 ID만 넣어라.", payload)
 
     async def compare(self, payload):
         return await self._ask(ComparisonResult,
@@ -88,15 +92,27 @@ class LLMReasoner:
             "가구 규모·소득 기준 등 추가 확인이 필요하면 needs_review로 구분하라. "
             "월 소득과 기준중위소득 비율을 근거 없이 환산하지 마라. "
             "최종 신청 자격을 확정하지 마라. 현재 날짜와 모집 기간도 비교하라. "
+            "evidence_review의 미확인 사항을 반영하라. 현재 모집 공고가 없다는 이유만으로 "
+            "not_eligible로 판정하지 말고 needs_review로 두어라. "
             "각 정책에 실제 근거 ID를 연결하고, 필요한 사용자 정보만 추가 질문하라.", payload)
 
     async def generate(self, payload):
         return await self._ask(AnswerDraft,
             "검토된 정책과 문서만으로 한국어 안내를 작성하라. 정책명·추천 또는 제외 이유·지원 내용·"
             "신청 방법 중 확인된 내용을 설명하고 미확인 사항을 명시하라. "
+            "정책 개요를 먼저 안내하고 자료의 연도·문서명·PDF 쪽수는 근거에서 확인되는 대로 적어라. "
+            "evidence_review.missing_information과 조건 충돌 표시는 별도의 확인 필요 사항으로 설명하라. "
+            "확정할 수 없는 소득·연령 조건을 사실처럼 단정하지 마라. "
+            "현재 모집 여부가 미확인이어도 확인된 정책 내용과 출처를 생략하지 마라. "
             "신청 자격을 확정하지 마라. not_eligible 정책을 신청 가능한 정책으로 추천하지 마라. "
             "공식 출처 URL을 새로 만들지 말고 문서 ID를 [V1], [A1] 형태로 인용하라. "
             "cited_ids에는 실제 답변에 사용한 근거 ID를 넣어라.", payload)
+
+
+def application_notice(answer: str, review: EvidenceDecision) -> str:
+    if review.application_status_verified:
+        return answer
+    return answer.rstrip() + "\n\n현재 모집 여부·신청 가능 여부: 최신 공식 공고 확인이 필요합니다."
 
 
 # [데이터 담당자에게 받은 문서를 Graph 형식으로 바꾸기]
@@ -220,6 +236,12 @@ class PolicyNodes:
             review.usable_ids = list(dict.fromkeys(i for i in review.usable_ids if i in valid_ids))
             if not review.usable_ids:
                 review.sufficient = False
+            usable_docs = [doc for doc in docs if doc.evidence_id in review.usable_ids]
+            # A planning document is not proof of current recruitment.
+            if usable_docs and all(doc.metadata.get("authority") == "planning_document"
+                                   or doc.metadata.get("application_status") == "unverified"
+                                   for doc in usable_docs):
+                review.application_status_verified = False
         return self._step(state, "assess_information", review=review)
 
     # [5. 부족할 때만 별도 Agent 호출]
@@ -246,7 +268,9 @@ class PolicyNodes:
     # 충분한 근거만 골라 비교합니다. API에서 가져온 문서도 동일한 검토와 비교를 거칩니다.
     async def compare_conditions(self, state):
         docs = [doc for doc in state["documents"] if doc.evidence_id in state["review"].usable_ids]
-        comparison = await self.reasoner.compare(payload_for(state, docs))
+        payload = payload_for(state, docs)
+        payload["evidence_review"] = state["review"].model_dump()
+        comparison = await self.reasoner.compare(payload)
         by_id = {doc.evidence_id: doc for doc in docs}
         for policy in comparison.policies:
             if not policy.evidence_ids or not set(policy.evidence_ids).issubset(by_id):
@@ -255,6 +279,9 @@ class PolicyNodes:
             for evidence_id in policy.evidence_ids:
                 reasons.extend(explicit_mismatches(by_id[evidence_id], state["request"].profile,
                                                    date.fromisoformat(state["reference_date"])))
+            if not state["review"].application_status_verified and policy.status == "candidate":
+                policy.status = "needs_review"
+                policy.reason += " / 현재 모집 여부는 최신 공식 공고 확인 필요"
             if reasons:
                 policy.status = "not_eligible"
                 policy.reason += " / " + ", ".join(dict.fromkeys(reasons))
@@ -274,10 +301,11 @@ class PolicyNodes:
         if all(policy.status == "not_eligible" for policy in policies):
             explanation = "\n".join(f"- {policy.policy_name}: {policy.reason}" for policy in policies)
             return self._step(state, "generate", status="answered", cited_ids=sorted(ids),
-                answer="검색된 정책은 확인된 조건상 추천 대상에서 제외됩니다.\n" + explanation,
+                answer=application_notice("검색된 정책은 확인된 조건상 추천 대상에서 제외됩니다.\n" + explanation, state["review"]),
                 follow_up_question=state["comparison"].follow_up_question)
         payload = payload_for(state, docs)
         payload["comparison"] = state["comparison"].model_dump()
+        payload["evidence_review"] = state["review"].model_dump()
         draft = await self.reasoner.generate(payload)
         # 모델이 존재하지 않는 문서 ID를 출처로 만들면 답변을 통과시키지 않습니다.
         inline_ids = set(re.findall(r"\[([VA]\d+)\]", draft.answer))
@@ -285,7 +313,7 @@ class PolicyNodes:
                 or not set(draft.cited_ids).issubset(ids)
                 or not inline_ids.issubset(set(draft.cited_ids))):
             raise ValueError("생성된 답변의 출처를 확인할 수 없습니다.")
-        return self._step(state, "generate", status="answered", answer=draft.answer,
+        return self._step(state, "generate", status="answered", answer=application_notice(draft.answer, state["review"]),
                           cited_ids=list(dict.fromkeys(draft.cited_ids)),
                           follow_up_question=state["comparison"].follow_up_question)
 

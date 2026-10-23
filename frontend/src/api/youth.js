@@ -77,11 +77,13 @@ export async function recommendPolicies(profile) {
   // Recommendation integration is independent of the login/chat preview mode.
   // Only send fields actually collected by the survey; never invent income data.
   const payload = buildRecommendProfile(profile)
-  return request(recommendBase, '/recommend', { profile: payload })
+  return request(recommendBase, '/recommend', { question: '설문에서 선택한 조건과 관심 분야에 맞는 청년 정책을 추천해 주세요.', profile: payload })
 }
-export async function ask(question) {
+export async function ask(question, profile) {
   if(typeof question!=='string')throw new Error('질문을 입력해 주세요.')
   const value=question.trim()
   if(value.length<2||value.length>1000)throw new Error('질문은 앞뒤 공백을 제외하고 2~1,000자로 입력해 주세요.')
-  return request(recommendBase, '/recommend', { question: value })
+  if (!profile || !profile.region || !profile.statuses?.length || !profile.interests?.length) throw new Error('맞춤 답변을 위해 먼저 설문을 완료해 주세요.')
+  const payload = buildRecommendProfile(profile)
+  return request(recommendBase, '/recommend', { question: value, profile: payload })
 }

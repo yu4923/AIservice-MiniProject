@@ -7,7 +7,7 @@ const source = readFileSync(new URL('./youth.js', import.meta.url), 'utf8')
 const api = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'))
 const profile = () => ({ age: 25, region: '울산', statuses: ['unemployed'], interests: ['employment', 'housing'], details: ['면접 지원', '월세·주거비'] })
 
-test('profile-only request uses cookies and excludes question, JWT and arbitrary fields', async () => {
+test('survey recommendation sends question and validated profile with cookies', async () => {
   let sent
   globalThis.fetch = async (url, options) => {
     sent = { url, ...options }
@@ -20,7 +20,8 @@ test('profile-only request uses cookies and excludes question, JWT and arbitrary
   assert.equal(sent.credentials, 'include')
   assert.deepEqual(sent.headers, { 'Content-Type': 'application/json' })
   const body = JSON.parse(sent.body)
-  assert.deepEqual(Object.keys(body), ['profile'])
+  assert.deepEqual(Object.keys(body), ['question', 'profile'])
+  assert.ok(body.question.length >= 2)
   assert.equal(body.profile.income, null)
   assert.equal(body.profile.employment_status, null)
   assert.equal(body.profile.household_size, null)
@@ -78,16 +79,16 @@ test('duplicate id and invalid login are reported as Korean errors',async()=>{
  }
 })
 
-test('chat sends only the trimmed question to recommend with cookies', async () => {
+test('chat sends trimmed question and actual survey profile with cookies', async () => {
   globalThis.fetch=async(url,options)=>{
     assert.equal(url,'http://localhost:8002/recommend')
     assert.equal(options.method,'POST')
     assert.equal(options.credentials,'include')
-    assert.deepEqual(JSON.parse(options.body),{question:'면접 지원 조건이 궁금해요'})
+    assert.deepEqual(JSON.parse(options.body),{question:'면접 지원 조건이 궁금해요',profile:api.buildRecommendProfile(profile())})
     assert.deepEqual(options.headers,{'Content-Type':'application/json'})
     return {ok:true,json:async()=>({answer:'서버 응답'})}
   }
-  assert.equal((await api.ask('  면접 지원 조건이 궁금해요  ')).answer,'서버 응답')
+  assert.equal((await api.ask('  면접 지원 조건이 궁금해요  ',profile())).answer,'서버 응답')
 })
 
 test('chat rejects blank, short, non-string and oversized questions', async () => {
@@ -122,3 +123,12 @@ for (const [label, values] of [
   ['zero household', { household_size: 0 }],
   ['household over 30', { household_size: 31 }],
 ]) test(`rejects ${label}`, () => assert.throws(() => api.buildRecommendProfile({ ...profile(), ...values })))
+
+test('chat requires a completed profile before making a request', async () => {
+  let called = false
+  globalThis.fetch = async () => { called = true; throw new Error('unexpected request') }
+  for (const value of [undefined, {...profile(), region:''}, {...profile(), statuses:[]}]) {
+    await assert.rejects(api.ask('월세 지원을 알려주세요', value), /설문/)
+  }
+  assert.equal(called, false)
+})
