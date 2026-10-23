@@ -18,7 +18,7 @@ export default {
       const saved = localStorage.getItem('closed_rag_base_url');
       const guess = (saved ? saved :
         (location.origin === 'null' || location.protocol === 'file:') ? externalRagUrl
-          : (location.hostname === 'localhost' || location.hostname === '127.0.0.1') ? externalRagUrl
+          : (location.hostname === 'localhost') ? externalRagUrl
           : location.origin);
       return {
         baseUrl: normalizeBaseUrl(guess),

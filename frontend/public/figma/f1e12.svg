@@ -1,0 +1,24 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="34" height="34" viewBox="0 0 34 34" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="Group 238532">
+<g id="Ellipse 1930" filter="url(#filter0_i_0_6)">
+<circle cx="17" cy="17" r="17" fill="#8738EE"/>
+</g>
+<g id="voice-mail--mic-audio-mike-music-microphone">
+<path id="Vector" d="M20.5 16.4C20.5 17.3282 20.1312 18.2185 19.4749 18.8749C18.8185 19.5312 17.9283 19.9 17 19.9C16.0717 19.9 15.1815 19.5312 14.5251 18.8749C13.8687 18.2185 13.5 17.3282 13.5 16.4V11.5C13.5 10.5717 13.8687 9.6815 14.5251 9.02512C15.1815 8.36875 16.0717 8 17 8C17.9283 8 18.8185 8.36875 19.4749 9.02512C20.1312 9.6815 20.5 10.5717 20.5 11.5V16.4Z" stroke-linecap="round" stroke-linejoin="round" stroke="white"/>
+<path id="Vector_2" d="M24 17.0999C24.0018 17.9278 23.8401 18.7478 23.5243 19.513C23.2083 20.2782 22.7443 20.9734 22.1588 21.5588C21.5735 22.1441 20.8783 22.6082 20.1131 22.924C19.3479 23.24 18.5279 23.4017 17.7 23.3999H16.3C15.4722 23.4017 14.6521 23.24 13.8869 22.924C13.1217 22.6082 12.4265 22.1441 11.8411 21.5588C11.2557 20.9734 10.7918 20.2782 10.4758 19.513C10.1599 18.7478 9.99817 17.9278 10 17.0999" stroke-linecap="round" stroke-linejoin="round" stroke="white"/>
+<path id="Vector_3" d="M17 23.4001V26.2001" stroke-linecap="round" stroke-linejoin="round" stroke="white"/>
+</g>
+</g>
+<defs>
+<filter id="filter0_i_0_6" x="0" y="0" width="34" height="38" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+<feFlood flood-opacity="0" result="BackgroundImageFix"/>
+<feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
+<feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+<feOffset dy="4"/>
+<feGaussianBlur stdDeviation="2"/>
+<feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1"/>
+<feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.25 0"/>
+<feBlend mode="normal" in2="shape" result="effect1_innerShadow_0_6"/>
+</filter>
+</defs>
+</svg>

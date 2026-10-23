@@ -8,7 +8,7 @@ export default {
     components: { JsonOutput },
       data() {
         return {
-          baseUrl: localStorage.getItem('rag_base_url') || (['localhost', '127.0.0.1', '[::1]'].includes(location.hostname) ? internalRagUrl : location.origin),
+          baseUrl: localStorage.getItem('rag_base_url') || (['localhost', '[::1]'].includes(location.hostname) ? internalRagUrl : location.origin),
           debug: false,
 
           loading: reactive({ health:false, status:false, schema:false, tables:false, ingest:false, query:false }),
