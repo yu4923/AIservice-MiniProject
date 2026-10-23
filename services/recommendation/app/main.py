@@ -12,11 +12,12 @@ from app.graph.workflow import PolicyRagService
 from app.tools.rag_api import RAGApiRetriever
 
 
-# [설정 범위] 작업 가능한 app 안의 .env만 명시적으로 읽습니다.
+# [설정 경로 통합] LLM과 정책 API가 같은 recommendation/.env를 읽게 합니다.
+# .env.example은 설정 견본이고, 실행할 때 읽는 파일은 실제 .env입니다.
 # 기존 share 폴더나 다른 서비스의 .env를 복사하거나 읽지 않습니다.
 # 터미널·컨테이너에서 이미 전달한 환경변수가 .env보다 우선합니다.
 APP_DIR = Path(__file__).resolve().parent
-load_dotenv(APP_DIR / ".env", override=False)
+load_dotenv(APP_DIR.parent / ".env", override=False)
 
 
 # [객체 연결: Spring의 의존성 주입과 같은 역할]

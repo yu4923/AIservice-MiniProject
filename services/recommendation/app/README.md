@@ -26,7 +26,7 @@ stash는 안전을 위해 삭제하거나 적용 완료 처리하지 않고 남�
 | tools/youth_policy_api.py | 외부 API·Agent 연결 규격 | 백업의 반환 형식을 복원하되 Agent 자체는 제외 |
 | main.py | FastAPI Controller | 백업의 Graph 호출 부분을 별도 추천 API로 분리 |
 | tests/test_policy_graph.py | API 비용 없는 검증 | 백업의 분기 테스트 복원 + HTTP 계약 테스트 |
-| requirements.txt, .env.example | 실행 설정 예시 | 허용된 app 내부에만 추가, 비밀키 없음 |
+| requirements.txt, ../.env.example | 실행 설정 예시 | 의존성 목록은 app 안에 두고, 설정 예시는 recommendation/.env.example 하나로 통합 |
 
 PDF·웹 수집, 청킹, 임베딩, FAISS 생성 코드는 데이터 파이프라인/RAG 서비스 영역이므로 가져오지 않았습니다.
 백업의 policy_api_agent.py에 있던 실제 Agent 구현도 가져오지 않았습니다.
@@ -63,12 +63,15 @@ cd services/recommendation
 python3.11 -m venv app/.venv
 source app/.venv/bin/activate
 python -m pip install -r app/requirements.txt
-cp -n app/.env.example app/.env
+cp -n .env.example .env
 ```
 
-app/.env에 본인의 OPENAI_API_KEY, 필요시 LLM_MODEL과 RAG_API_URL을 입력합니다.
-기존 실습 폴더의 .env는 자동으로 복사하거나 읽지 않습니다.
-프로세스 환경변수는 app/.env보다 우선합니다. 실제 키는 Git에 올리지 마세요.
+현재 폴더의 .env, 즉 services/recommendation/.env에 본인의 OPENAI_API_KEY,
+필요시 LLM_MODEL과 RAG_API_URL을 입력합니다. 외부 정책 API를 사용할 때는
+같은 파일에 YOUTH_POLICY_API_KEY도 설정합니다.
+추천 서버와 정책 API 클라이언트는 이 설정 파일을 함께 사용합니다.
+기존 app/.env나 실습 폴더의 .env는 자동으로 복사하거나 읽지 않습니다.
+프로세스 환경변수는 .env보다 우선합니다. 실제 키는 Git에 올리지 마세요.
 설정 파일이 필요 없다면 터미널·컨테이너에서 같은 환경변수를 주입해도 됩니다.
 
 ```bash
