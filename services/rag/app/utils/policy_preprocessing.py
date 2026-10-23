@@ -21,10 +21,11 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
-VERSION = "policy-preprocess-v1"
+VERSION = "policy-preprocess-v2"
 TASK = re.compile(
-    r"^\s*(?P<id>[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩⅪⅫIVX]+(?:\s*-\s*\d+){2,4}\s*-\s*\(\d+\)"
-    r"|\d+(?:-\d+){1,3}-[가-힣]+-\d+)\s*(?P<title>.+)$"
+    r"^\s*\[?(?P<id>[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩⅪⅫIVX]+(?:\s*-\s*\d+){2,4}\s*-\s*\(\d+\)"
+    r"|\d+(?:\s*-\s*(?:\d+|[\ue000-\uf8ff])){1,3}\s*-\s*[가-힣]+\s*-\s*\d+"
+    r"|\d+(?:\s*-\s*\d+){2,3})\]?(?![\d-])\s*(?P<title>.*)$"
 )
 REGIONS = {"서울": "서울특별시", "부산": "부산광역시", "대구": "대구광역시",
            "인천": "인천광역시", "광주": "광주광역시", "대전": "대전광역시",
@@ -170,12 +171,22 @@ def table_text(rows):
 def money_mentions(text):
     """Normalize literal amounts, never interpret a project budget as a benefit."""
     units = {"조": 10**12, "억": 10**8, "천만": 10**7, "백만": 10**6, "만": 10**4, "천": 1000, "": 1}
-    pattern = r"(?:\d[\d,.]*\s*(?:조|억|천만|백만|만|천)\s*)+(?:\d[\d,.]*\s*)?원|\d[\d,.]*\s*원"
+    # Consume malformed numeric tokens whole, so a date/typo cannot become a
+    # valid-looking amount by matching only its suffix. '원스톱' is not currency.
+    pattern = (r"(?<![\d.,])(?:"
+               r"(?:\d[\d,.]*\s*(?:조|억|천만|백만|만|천)\s*)+(?:\d[\d,.]*\s*)?원"
+               r"|\d[\d,.]*\s*원)"
+               r"(?=$|[^\w]|(?:은|는|을|를|의|이|가|에|으로|부터|까지|씩|당|만|도|과|와|"
+               r"이상|이하|미만|초과|정도|내외)(?![가-힣A-Za-z0-9_]))")
+    number_pattern = re.compile(r"(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?")
     result = []
     for match in re.finditer(pattern, text):
         raw = match[0]
+        parts = re.findall(r"(\d[\d,.]*)\s*(조|억|천만|백만|만|천)?", raw)
+        if any(not number_pattern.fullmatch(number) for number, _ in parts):
+            continue
         total = Decimal(0)
-        for number, unit in re.findall(r"(\d[\d,.]*)\s*(조|억|천만|백만|만|천)?", raw):
+        for number, unit in parts:
             total += Decimal(number.replace(",", "")) * units[unit]
         result.append({"raw": raw, "value_krw": int(total), "benefit_status": "unverified"})
     return result
@@ -247,6 +258,7 @@ def extract_pages(path: Path, settings: Settings):
                 flags.append("unreadable_page")
             record = {"page": i + 1, "printed_page": printed[1] if printed else None,
                       "width": page.width, "height": page.height, "raw_text": raw,
+                      "heading_blocks": [b for b in lines if b["bbox"][1] <= 180],
                       "blocks": blocks, "extraction_method": method, "quality_flags": flags}
             pages.append(record)
             for reason in flags:
@@ -267,13 +279,49 @@ def extract_pages(path: Path, settings: Settings):
 
 
 def _heading(page):
-    for block in page["blocks"]:
+    # Read the header before table extraction can absorb its title cells.
+    # A title can precede the task number or occupy several lines beside it.
+    header = []
+    has_overview = False
+    # Original lines also include table-of-contents / budget table rows. Only
+    # restore table-contained header text on a business-overview page.
+    overview_page = any(re.match(r"1\.\s*사업\s*개요", b["text"])
+                        and b["bbox"][1] <= 240 for b in page["blocks"] if b["kind"] == "text")
+    heading_blocks = page.get("heading_blocks", page["blocks"]) if overview_page else page["blocks"]
+    for block in heading_blocks:
         if block["kind"] != "text" or block["bbox"][1] > 180:
             continue
-        match = TASK.match(block["text"])
+        if re.match(r"(?:\d+\.\s|[□ㅇ○])", block["text"]):
+            has_overview = bool(re.match(r"1\.\s*사업\s*개요", block["text"]))
+            break
+        if re.match(r"[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩⅪⅫIVX]+\.", block["text"]):
+            continue
+        header.append(block)
+    matches = [(block, TASK.match(block["text"])) for block in header]
+    numbered = [(block, match) for block, match in matches if match]
+    common = [block for block in header
+              if has_overview and re.match(r"^(?:공통|[\ue000-\uf8ff])(?:\s|$)", block["text"])]
+    if not numbered and not common:
+        return None
+    anchor = (numbered[0][0] if numbered else common[0])["bbox"]
+    titles = []
+    for block, match in matches:
+        # Exclude document/chapter headings above the actual title box.
+        if block["bbox"][3] < anchor[1] - 25:
+            continue
         if match:
-            return re.sub(r"\s", "", match["id"]), match["title"].strip()
-    return None
+            text = match["title"]
+        else:
+            text = re.sub(r"^(?:공통|[\ue000-\uf8ff])\s*", "", block["text"])
+        text = re.sub(r"(?:^|\s)(?:자체|공통|신규|계속)\s*$", "", text).strip()
+        if text:
+            titles.append(text)
+    if not titles:
+        return None
+    task_id = (re.sub(r"\s", "", numbered[0][1]["id"]) if numbered
+               else common[0]["text"].split()[0])
+    # Keep undecodable private-use glyphs as evidence; never guess their digits.
+    return task_id, " ".join(titles)
 
 
 def _section(text, previous, document_year):
@@ -353,13 +401,17 @@ def build_records(pages, source, document_id, context, max_chars=2200):
     for page in pages:
         heading = _heading(page) if context["document_type"] != "overview" else None
         if heading:
-            if not groups or groups[-1]["task_id"] != heading[0]:
+            if not groups or (groups[-1]["task_id"], groups[-1]["title"]) != heading:
                 groups.append({"task_id": heading[0], "title": heading[1], "pages": []})
         elif not groups:
             groups.append({"task_id": "frontmatter", "title": "문서 개요·정책 체계", "pages": []})
         groups[-1]["pages"].append(page)
     for group in groups:
-        pid = digest(f"{document_id}|{group['task_id']}")[:24]
+        # Regional documents can reuse task IDs (especially PUA glyphs / 공통).
+        pid = digest(f"{document_id}|{group['task_id']}|{group['pages'][0]['page']}")[:24]
+        if re.search(r"[\ue000-\uf8ff]", group["task_id"]):
+            reviews.append({"policy_id": pid, "reason": "task_number_unverified",
+                            "page": group["pages"][0]["page"], "raw_task_id": group["task_id"]})
         section = {"name": "요약·사업 개요", "role": "plan", "year": context["document_year"]}
         blocks = []
         for page in group["pages"]:
@@ -442,7 +494,9 @@ def preprocess_pdf(path, source_name=None, settings=None) -> Result:
     policies, chunks, conflicts = build_records(pages, source, document_id, context, settings.max_chars)
     # Text-empty image pages must stay visible in the report, never silently disappear.
     if not chunks:
-        reviews.append({"reason": "no_extractable_text"})
+        has_text = any(p["raw_text"].strip() for p in pages)
+        reviews.append({"reason": "policy_heading_not_found" if has_text and context["document_type"] != "overview"
+                        else "no_extractable_text"})
     partial = settings.first_page != 1 or len(pages) != total
     manifest = {"document_id": document_id, "source": source, "content_hash": content_hash,
                 "preprocessing_version": VERSION, "processed_at": datetime.now(timezone.utc).isoformat(),

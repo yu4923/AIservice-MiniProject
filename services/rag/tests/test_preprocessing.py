@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from app.utils.policy_preprocessing import (Settings, TASK, build_records, normalize,
-                                           source_context, _section, _facts, table_text, money_mentions)
+                                           source_context, _heading, _section, _facts, table_text, money_mentions)
 from app.utils.web_preprocessing import official_url, canonical_url, parse_html, web_chunks, _fetch
 from app.retrieval import faiss_store
 from langchain_core.documents import Document
@@ -78,6 +78,80 @@ class PolicyTests(unittest.TestCase):
         values = money_mentions('사업비 427,000백만원, 월 500천원, 최대 1억2,000만원')
         self.assertEqual([v['value_krw'] for v in values], [427000000000,500000,120000000])
         self.assertTrue(all(v['benefit_status']=='unverified' for v in values))
+
+    def test_dates_and_onestop_word_are_not_money(self):
+        for text in ('23.08.07.원', '- ‘23.08.07. 원스톱전세피해지원센터 이전 개소',
+                     '2026.01.01.원', '100 원스톱 서비스', '10,00만원', '5..2원'):
+            with self.subTest(text=text):
+                self.assertEqual(money_mentions(text), [])
+        values = money_mentions('23.08.07.원 이후 사업비 145백만원 (시비 100%)')
+        self.assertEqual([v['value_krw'] for v in values], [145000000])
+
+    def test_money_decimals_particles_and_compound_units(self):
+        values = money_mentions('1.5억원, 30만원은 지원, 500천원씩 지급, 1억2,000만원까지 지원')
+        self.assertEqual([v['value_krw'] for v in values], [150000000, 300000, 500000, 120000000])
+        self.assertEqual(money_mentions('최대100만원')[0]['value_krw'], 1000000)
+
+    def test_incheon_pua_task_with_title_before_and_after_number(self):
+        pg = page(37, ['구직활동 청년 지원을 위한', '1-\uf000-인천-1 자체',
+                       '‘드림체크카드’', '1. 사업 개요', '청년 지원 내용 '*20])
+        self.assertEqual(_heading(pg), ('1-\uf000-인천-1', '구직활동 청년 지원을 위한 ‘드림체크카드’'))
+        context = source_context('04. (인천) 2026년 청년정책.pdf')
+        policies, chunks, reviews = build_records([pg], 'incheon.pdf', 'id', context)
+        self.assertTrue(chunks)
+        self.assertEqual(policies[0]['task_id'], '1-\uf000-인천-1')
+        self.assertEqual(reviews[0]['reason'], 'task_number_unverified')
+
+    def test_chungnam_local_number_title_and_bracketed_reference(self):
+        pg = page(17, ['Ⅰ. 일자리 분야 (41개)', '1-1-1', '청년인턴 사업 자체',
+                       '[1-3-충남-15]', '1. 사업 개요', '청년 인턴 지원 내용 '*20])
+        self.assertEqual(_heading(pg), ('1-1-1', '청년인턴 사업'))
+        context = source_context('12. (충남) 2026년 청년정책.pdf')
+        policies, chunks, _ = build_records([pg], 'chungnam.pdf', 'id', context)
+        self.assertEqual(len(policies), 1)
+        self.assertTrue(chunks)
+        self.assertEqual(chunks[0]['metadata']['publisher_region'], '충청남도')
+
+    def test_multiline_title_and_numeric_reference_are_kept_separate(self):
+        pg = page(34, ['1-1-8 충청남도 친화형 PILOT 프로그램', '자체',
+                       '[1-3-충남-15] (프로젝트 인턴십)', '1. 사업 개요'])
+        self.assertEqual(_heading(pg), ('1-1-8', '충청남도 친화형 PILOT 프로그램 (프로젝트 인턴십)'))
+        pg = page(21, ['1-1-3', '지방공기업 체험형 청년인턴 제도 운영 공통',
+                       '[1-3-15]', '1. 사업 개요'])
+        self.assertEqual(_heading(pg), ('1-1-3', '지방공기업 체험형 청년인턴 제도 운영'))
+
+    def test_common_and_pua_only_headers_require_business_overview(self):
+        for prefix in ('공통', '\uf000'):
+            with self.subTest(prefix=prefix):
+                pg = page(40, [prefix+' 청년도전지원사업 공통', '1. 사업 개요'])
+                self.assertEqual(_heading(pg), (prefix, '청년도전지원사업'))
+                self.assertIsNone(_heading(page(1, [prefix+' 청년도전지원사업 공통', '2026 예산 목록'])))
+
+    def test_repeated_regional_ids_and_common_policies_do_not_merge(self):
+        pages = [page(27, ['1-\uf000-인천-1 첫 정책 자체', '1. 사업 개요', '첫 정책 지원 '*20]),
+                 page(31, ['1-\uf000-인천-1 둘째 정책 자체', '1. 사업 개요', '둘째 정책 지원 '*20]),
+                 page(40, ['공통 셋째 정책 공통', '1. 사업 개요', '셋째 정책 지원 '*20]),
+                 page(44, ['공통 넷째 정책 공통', '1. 사업 개요', '넷째 정책 지원 '*20])]
+        policies, chunks, _ = build_records(pages, 'incheon.pdf', 'id', source_context('(인천) 2026.pdf'))
+        self.assertEqual(len(policies), 4)
+        self.assertEqual(len({p['policy_id'] for p in policies}), 4)
+        self.assertEqual({p['policy_name'] for p in policies}, {'첫 정책', '둘째 정책', '셋째 정책', '넷째 정책'})
+        for chunk in chunks:
+            self.assertEqual(len(chunk['metadata']['pages']), 1)
+
+    def test_heading_survives_table_extraction_using_original_lines(self):
+        original = page(17, ['1-1-1', '청년인턴 사업 자체', '[1-3-충남-15]', '1. 사업 개요'])
+        pg = {**original, 'heading_blocks': original['blocks'],
+              'blocks': [{'kind': 'table', 'text': '청년인턴 사업 | 자체',
+                          'bbox': [40, 50, 550, 100]}, original['blocks'][-1]]}
+        self.assertEqual(_heading(pg), ('1-1-1', '청년인턴 사업'))
+
+    def test_summary_table_rows_do_not_start_policies(self):
+        original = page(16, ['1-\uf000-인천-1 인공지능융합 인재양성 100 200'])
+        pg = {**original, 'heading_blocks': original['blocks'],
+              'blocks': [{'kind': 'table', 'text': '과제번호 | 과제명 | 예산',
+                          'bbox': [40, 50, 550, 700]}]}
+        self.assertIsNone(_heading(pg))
 
     def test_income_basis_and_footnote_stay_with_age_candidate(self):
         context = source_context('2026 과제카드.pdf')
