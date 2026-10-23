@@ -1,0 +1,11 @@
+# 빌드에 필요한 파일만 보내 비밀 설정과 DB 백업의 이미지 유입을 막는다.
+**
+!Dockerfile
+!gradlew
+!settings.gradle
+!build.gradle
+!gradle.properties
+!gradle/
+!gradle/**
+!src/
+!src/**

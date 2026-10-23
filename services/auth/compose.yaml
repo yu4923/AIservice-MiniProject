@@ -1,0 +1,54 @@
+name: auth-local
+
+services:
+  springboot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DB_URL: jdbc:mariadb://mariadb:3306/sql_db
+      DB_USER: ${DB_USER:?Set DB_USER in .env}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      SERVER_ADDRESS: 0.0.0.0
+      SERVER_PORT: 8080
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:5174}
+      LOGIN_SUCCESS_URL: ${LOGIN_SUCCESS_URL:-http://localhost:5174}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      # 호스트 설정이 update여도 기존 DB 구조를 자동 변경하지 않는다.
+      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+    ports:
+      - "127.0.0.1:${SERVER_PORT:-8080}:8080"
+    depends_on:
+      mariadb:
+        condition: service_healthy
+        restart: true
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      start_period: 60s
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    stop_grace_period: 30s
+
+  mariadb:
+    image: mariadb:11.4.13
+    environment:
+      MARIADB_DATABASE: sql_db
+      MARIADB_USER: ${DB_USER:?Set a dedicated local DB_USER in .env}
+      MARIADB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:?Set MARIADB_ROOT_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:${DB_PORT:-53301}:3306"
+    volumes:
+      - mariadb_data:/var/lib/mysql
+      - ./src/main/resources/db/schema.sql:/docker-entrypoint-initdb.d/001-users.sql:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      start_period: 30s
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  mariadb_data:

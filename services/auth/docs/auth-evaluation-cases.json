@@ -1,0 +1,104 @@
+[
+  {
+    "id": "AUTH-01",
+    "category": "health",
+    "name": "프로세스 상태 확인",
+    "expected_status": 200
+  },
+  {
+    "id": "AUTH-02",
+    "category": "authentication",
+    "name": "미인증 접근 거절",
+    "expected_status": 401
+  },
+  {
+    "id": "AUTH-03",
+    "category": "signup",
+    "name": "id·password 두 필드로 실제 MariaDB 가입",
+    "expected_status": 201
+  },
+  {
+    "id": "AUTH-04",
+    "category": "signup",
+    "name": "중복 로그인 아이디 가입 거절",
+    "expected_status": 409
+  },
+  {
+    "id": "AUTH-05",
+    "category": "authentication",
+    "name": "잘못된 비밀번호 거절",
+    "expected_status": 401
+  },
+  {
+    "id": "AUTH-06",
+    "category": "validation",
+    "name": "필수 입력 누락 거절",
+    "expected_status": 400
+  },
+  {
+    "id": "AUTH-07",
+    "category": "cookie",
+    "name": "HttpOnly Lax JWT 한 개 발급",
+    "expected_status": 200
+  },
+  {
+    "id": "AUTH-08",
+    "category": "authentication",
+    "name": "JWT 인증 확인",
+    "expected_status": 200
+  },
+  {
+    "id": "AUTH-09",
+    "category": "authentication",
+    "name": "이전 세션 쿠키 우회 거절",
+    "expected_status": 401
+  },
+  {
+    "id": "AUTH-10",
+    "category": "authentication",
+    "name": "표시용 쿠키 우회 거절",
+    "expected_status": 401
+  },
+  {
+    "id": "AUTH-11",
+    "category": "authentication",
+    "name": "변조 JWT 거절",
+    "expected_status": 401
+  },
+  {
+    "id": "AUTH-12",
+    "category": "authentication",
+    "name": "만료 JWT 거절",
+    "expected_status": 401
+  },
+  {
+    "id": "AUTH-13",
+    "category": "authentication",
+    "name": "다른 발급자 JWT 거절",
+    "expected_status": 401
+  },
+  {
+    "id": "AUTH-14",
+    "category": "cors",
+    "name": "허용 프론트 사전 요청",
+    "expected_status": 204
+  },
+  {
+    "id": "AUTH-15",
+    "category": "cors",
+    "name": "다른 Origin 거절",
+    "expected_status": 403
+  },
+  {
+    "id": "AUTH-16",
+    "category": "logout",
+    "name": "로그아웃과 쿠키 삭제",
+    "expected_status": 200
+  },
+  {
+    "id": "AUTH-17",
+    "category": "logout",
+    "name": "로그아웃 후 인증 거절",
+    "expected_status": 401
+  }
+]

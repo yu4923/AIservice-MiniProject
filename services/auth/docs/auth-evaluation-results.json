@@ -1,0 +1,166 @@
+{
+  "contract": "username-v1",
+  "historical": true,
+  "note": "no-id-pw-v2 이전 계약의 검증 기록이며 현재 결과가 아니다.",
+  "checked_at": "2026-10-23T02:01:50.484681+00:00",
+  "base_url": "http://localhost:8080",
+  "frontend_origin": "http://localhost:5174",
+  "database": "project-local MariaDB",
+  "expected_case_count": 17,
+  "executed_case_count": 17,
+  "cases": [
+    {
+      "id": "AUTH-01",
+      "category": "health",
+      "name": "프로세스 상태 확인",
+      "expected_status": 200,
+      "actual_status": 200,
+      "result": "PASS",
+      "request_id": null
+    },
+    {
+      "id": "AUTH-02",
+      "category": "authentication",
+      "name": "미인증 접근 거절",
+      "expected_status": 401,
+      "actual_status": 401,
+      "result": "PASS",
+      "request_id": null
+    },
+    {
+      "id": "AUTH-03",
+      "category": "signup",
+      "name": "id·password 두 필드로 실제 MariaDB 가입",
+      "expected_status": 201,
+      "actual_status": 201,
+      "result": "PASS",
+      "request_id": null
+    },
+    {
+      "id": "AUTH-04",
+      "category": "signup",
+      "name": "동일 id 중복 가입 거절",
+      "expected_status": 409,
+      "actual_status": 409,
+      "result": "PASS",
+      "request_id": null
+    },
+    {
+      "id": "AUTH-05",
+      "category": "authentication",
+      "name": "잘못된 비밀번호 거절",
+      "expected_status": 401,
+      "actual_status": 401,
+      "result": "PASS",
+      "request_id": null
+    },
+    {
+      "id": "AUTH-06",
+      "category": "validation",
+      "name": "필수 입력 누락 거절",
+      "expected_status": 400,
+      "actual_status": 400,
+      "result": "PASS",
+      "request_id": null
+    },
+    {
+      "id": "AUTH-07",
+      "category": "cookie",
+      "name": "HttpOnly Lax JWT 한 개 발급",
+      "expected_status": 200,
+      "actual_status": 200,
+      "result": "PASS",
+      "request_id": null
+    },
+    {
+      "id": "AUTH-08",
+      "category": "authentication",
+      "name": "JWT 인증 확인",
+      "expected_status": 200,
+      "actual_status": 200,
+      "result": "PASS",
+      "request_id": null
+    },
+    {
+      "id": "AUTH-09",
+      "category": "authentication",
+      "name": "이전 세션 쿠키 우회 거절",
+      "expected_status": 401,
+      "actual_status": 401,
+      "result": "PASS",
+      "request_id": "a15c41df-ff69-46d5-a211-322f64ff1941"
+    },
+    {
+      "id": "AUTH-10",
+      "category": "authentication",
+      "name": "표시용 쿠키 우회 거절",
+      "expected_status": 401,
+      "actual_status": 401,
+      "result": "PASS",
+      "request_id": "dc86c8af-990e-4c58-9c35-1f93050167a0"
+    },
+    {
+      "id": "AUTH-11",
+      "category": "authentication",
+      "name": "변조 JWT 거절",
+      "expected_status": 401,
+      "actual_status": 401,
+      "result": "PASS",
+      "request_id": "0ae537ae-c229-4993-96c9-c474f0837a6c"
+    },
+    {
+      "id": "AUTH-12",
+      "category": "authentication",
+      "name": "만료 JWT 거절",
+      "expected_status": 401,
+      "actual_status": 401,
+      "result": "PASS",
+      "request_id": "ca9c6d9f-8a0a-4633-9360-712b9ce323d8"
+    },
+    {
+      "id": "AUTH-13",
+      "category": "authentication",
+      "name": "다른 발급자 JWT 거절",
+      "expected_status": 401,
+      "actual_status": 401,
+      "result": "PASS",
+      "request_id": "58e4f2e7-0502-424c-a62d-1cacf15c8614"
+    },
+    {
+      "id": "AUTH-14",
+      "category": "cors",
+      "name": "허용 프론트 사전 요청",
+      "expected_status": 204,
+      "actual_status": 204,
+      "result": "PASS",
+      "request_id": null
+    },
+    {
+      "id": "AUTH-15",
+      "category": "cors",
+      "name": "다른 Origin 거절",
+      "expected_status": 403,
+      "actual_status": 403,
+      "result": "PASS",
+      "request_id": null
+    },
+    {
+      "id": "AUTH-16",
+      "category": "logout",
+      "name": "로그아웃과 쿠키 삭제",
+      "expected_status": 200,
+      "actual_status": 200,
+      "result": "PASS",
+      "request_id": null
+    },
+    {
+      "id": "AUTH-17",
+      "category": "logout",
+      "name": "로그아웃 후 인증 거절",
+      "expected_status": 401,
+      "actual_status": 401,
+      "result": "PASS",
+      "request_id": null
+    }
+  ]
+}
