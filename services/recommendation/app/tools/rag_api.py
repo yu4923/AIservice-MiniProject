@@ -3,9 +3,11 @@
 import asyncio
 import os
 from itertools import zip_longest
+from urllib.parse import urlsplit
 from typing import Any, Literal
 
 import httpx
+from app.auth import forwarded_cookies, forwarded_headers                                  #JWT_code: 공유 객체 대신 현재 요청 컨텍스트의 JWT를 읽는다.
 from langchain_core.documents import Document
 from pydantic import BaseModel, Field
 
@@ -30,6 +32,11 @@ class RAGApiRetriever:
     def __init__(self, base_url: str | None = None, *, timeout_seconds: float = 15,
                  transport: httpx.AsyncBaseTransport | None = None):
         self.base_url = (base_url or os.getenv("RAG_API_URL", "http://127.0.0.1:8001")).rstrip("/")
+        parsed = urlsplit(self.base_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.query or parsed.fragment or parsed.username or parsed.password:
+            raise ValueError("RAG_API_URL에는 인증정보·쿼리가 없는 HTTP(S) 서버 주소를 설정하세요.")
+        if parsed.path.rstrip("/").endswith(("/rag-query", "/recommend")):
+            raise ValueError("RAG_API_URL에는 API 경로가 아닌 서버 주소만 입력하세요.")
         self.timeout_seconds = timeout_seconds
         # 테스트에서 가짜 HTTP 서버를 넣는 자리입니다. 실제 서버에서는 생략합니다.
         self.transport = transport
@@ -39,7 +46,10 @@ class RAGApiRetriever:
             raise ValueError("검색 대상과 top_k를 확인하세요.")
         sources = ["pdf", "web"] if source == "all" else [source]
         async with httpx.AsyncClient(timeout=self.timeout_seconds,
-                                     transport=self.transport) as client:
+                                     transport=self.transport,
+                                     cookies=forwarded_cookies(),       #JWT_code: 현재 사용자의 JWT 쿠키만 내부 RAG에 전달한다.
+                                     headers=forwarded_headers(),       #JWT_code: 추천과 RAG 로그를 같은 요청 ID로 연결한다.
+                                     follow_redirects=False) as client:  #JWT_code: JWT가 리다이렉트된 다른 서버로 전달되지 않게 한다.
             async def fetch(kind):
                 # [복원 시 변경] 예전에는 로컬 FAISS를 직접 읽었습니다.
                 # 현재는 데이터 담당자의 RAG 서버에 검색만 요청합니다.

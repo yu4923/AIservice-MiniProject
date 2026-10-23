@@ -1,0 +1,26 @@
+# Run from repo root:
+# docker compose --env-file services/recommendation/.env -f infra/compose.backend.yaml up -d --build
+# FAISS volume sharing and database initialization are deliberately not configured here.
+services:
+  rag:
+    build:
+      context: ../services/rag
+    environment:
+      RAG_EMBEDDING_MODEL: ${RAG_EMBEDDING_MODEL:-nlpai-lab/KURE-v1}
+      RAG_EMBEDDING_DEVICE: ${RAG_EMBEDDING_DEVICE:-cpu}
+      RAG_EMBEDDING_BATCH_SIZE: ${RAG_EMBEDDING_BATCH_SIZE:-8}
+      RAG_FAISS_DIR: /workspace/data/faiss-kure-v1
+    ports:
+      - "127.0.0.1:8001:8001"
+  recommendation:
+    build:
+      context: ../services/recommendation
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?Set OPENAI_API_KEY}
+      YOUTH_POLICY_API_KEY: ${YOUTH_POLICY_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o}
+      RAG_API_URL: http://rag:8001
+    ports:
+      - "127.0.0.1:8002:8002"
+    depends_on:
+      - rag

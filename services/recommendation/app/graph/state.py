@@ -2,44 +2,16 @@
 
 from typing import Any, Literal, TypedDict
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, Field
+
+# 기존 Graph의 import 경로를 유지하면서 외부 입력 검사는 별도 모듈에 둔다.
+from app.input_validation import RAGRequest, UserProfile
 
 
 POLICY_SCOPES = (
     "중앙정부 청년 지원사업", "지자체 청년 지원정책", "청년정책 신청 자격 지원 내용",
     "청년 지원사업 모집 공고", "청년정책 종합 안내",
 )
-
-
-# [사용자 입력 DTO: Spring의 Request DTO에 해당]
-# 사용자 상황은 profile, 질문은 question입니다. 검색 자료 context는 서버가 만듭니다.
-# 소득은 '월 200만원'과 '기준중위소득 100%'가 다른 정보이므로 단위가 있는 문자열로 받습니다.
-class UserProfile(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-    age: int | None = Field(default=None, ge=0, le=120)
-    region: str | None = Field(default=None, max_length=100)
-    income: str | None = Field(default=None, max_length=200)
-    employment_status: str | None = Field(default=None, max_length=100)
-    interests: list[str] = Field(default_factory=list, max_length=10)
-    # 기본 다섯 항목을 받은 뒤 소득 조건 비교에 더 필요한 경우 추가로 받을 수 있습니다.
-    household_size: int | None = Field(default=None, ge=1, le=30)
-
-    @field_validator("interests")
-    @classmethod
-    def clean_interests(cls, values):
-        if any(not value.strip() or len(value) > 100 for value in values):
-            raise ValueError("관심 분야는 빈 값 없이 항목당 100자 이내로 입력하세요.")
-        return [value.strip() for value in values]
-
-
-class RAGRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-    # 기존 콘솔의 prompt도 받습니다. API 담당자는 새 이름 question을 사용하면 됩니다.
-    question: str = Field(min_length=2, max_length=2000,
-                          validation_alias=AliasChoices("question", "prompt"))
-    profile: UserProfile = Field(default_factory=UserProfile)
-    source: Literal["pdf", "web", "all"] = "all"
-    top_k: int = Field(default=5, ge=1, le=20)
 
 
 # [LLM의 판단 결과 DTO]

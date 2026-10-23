@@ -12,3 +12,6 @@ langgraph-prebuilt==1.0.8
 langchain-core>=1.2.7,<2.0
 langchain-openai==1.1.7
 openai==1.109.1
+
+#JWT_code: Spring HS256 JWT의 서명과 claim을 검증한다.
+python-jose[cryptography]

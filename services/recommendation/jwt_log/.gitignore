@@ -1,0 +1,3 @@
+#JWT_code: 생성된 인증 로그는 Git에 포함하지 않는다.
+*
+!.gitignore

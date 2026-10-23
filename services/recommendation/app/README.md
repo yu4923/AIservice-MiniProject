@@ -1,3 +1,8 @@
+> 현재 실행 기준: `GraphPolicyAgent`가 실제 정책 API를 Graph의 `ApiLookupResult`로 변환하며 기본 연결됩니다.
+> 설정은 `services/recommendation/.env` 또는 프로세스 환경변수를 사용합니다.
+> 컨테이너 실행·서비스별 변수 주입은 루트 `CONFIGURATION.md`의 컨테이너 연결 절을 참고하세요.
+> 아래 백업 복원 내역의 미연결 Agent·app/.env 설명은 복원 당시 기록입니다.
+
 # 추천 Graph 복원 안내
 
 임시 백업 `/tmp/ai-mini-graph-undo.nULvMy`의 구현을 현재 llm 브랜치 구조에 맞게 복원했습니다.

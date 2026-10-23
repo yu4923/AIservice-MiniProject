@@ -54,9 +54,18 @@ public class AuthController {
     }
 
     private Map<String, Object> login(Credentials credentials, HttpServletRequest request, HttpServletResponse response) {
-        User user = auth.login(credentials.id(), credentials.password());
+        User user;
+        try {
+            user = auth.login(credentials.id(), credentials.password());
+        } catch (ApiException ex) {
+            // JWT_code: 아이디·비밀번호 대신 발급 거절 사유만 기록한다.
+            String reason = ex.getStatus() == HttpStatus.UNAUTHORIZED ? "invalid_credentials" : "invalid_request";
+            JwtAudit.record(request, "jwt_issue", "rejected", reason, ex.getStatus().value());
+            throw ex;
+        }
         String token = jwt.create(user);
         cookies.issue(response, token);
+        JwtAudit.record(request, "jwt_issue", "issued", "login_success", 200);
         return Map.of("ok", true, "redirect", redirect, "expires_in", JwtService.TTL_SECONDS);
     }
 

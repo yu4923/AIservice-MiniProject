@@ -67,13 +67,7 @@ class YouthPolicyAPI:
         return await self._get({"plcyNo": policy_no.strip(), "pageType": "2", "pageNum": 1, "pageSize": 1})
 
 
-# [stash 복구: 기존 Graph의 연결 규격을 최신 API 구현과 함께 유지]
-# 위 YouthPolicyAPI는 원격에서 받은 실제 API 클라이언트이며 그대로 유지합니다.
-# 아래 규격은 Graph가 요구하는 Document 목록용입니다. API의 원본 dict와는 다릅니다.
-# 기존 PolicyAgent도 lookup(keyword, *, region_code=...) 형태이므로,
-# Graph의 lookup(query, missing_information)과 연결하려면 별도 어댑터가 필요합니다.
-# 이번에는 복구만 수행하고 agents 폴더나 실제 Agent 연결 방식은 바꾸지 않습니다.
-# Spring의 Repository 인터페이스처럼 '무엇을 받을지'만 정합니다.
+# Shared graph supplement contract.
 class PolicyApiClient(Protocol):
     configured: bool
 
@@ -95,7 +89,7 @@ class PolicySupplementer(Protocol):
 
 
 # [미연결 상태를 명시하는 대체 객체: 실제 Agent가 아님]
-# agents 폴더를 수정할 수 없으므로 기본 서버는 '아직 연결되지 않음'을 반환합니다.
+# Optional no-network substitute for tests or disabled external lookups.
 # Agent 담당자가 준비되면 create_app(api_agent=담당자객체)로 이 객체를 교체합니다.
 class UnconfiguredPolicyAgent:
     configured = False

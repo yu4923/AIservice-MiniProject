@@ -94,3 +94,22 @@ Docker 이미지에도 `.env`와 업로드 파일을 포함하지 않습니다.
 이미 추적 중인 파일에는 ignore 규칙이 소급 적용되지 않습니다. `git status`와
 `git ls-files`로 실제 게시 대상을 확인하세요. 과거 커밋에 비밀값을 올렸다면
 키·비밀번호를 교체하고 Git 이력도 별도로 정리해야 합니다.
+
+## RAG・추천 서비스의 컨테이너 연결
+
+```bash
+docker compose --env-file services/recommendation/.env -f infra/compose.backend.yaml up -d --build
+```
+
+Compose는 추천 서버에 OpenAI 키·온통청년 키·모델·RAG 주소만 주입하고,
+RAG 검색 서버에는 로컬 임베딩 설정만 주입합니다. `.env`는 이미지에 복사되지 않습니다.
+RAG 모델을 바꾸려면 같은 명령에 `--env-file services/rag/.env`를 추가할 수 있습니다.
+로컬 실행에서는 각 서비스 폴더의 `.env`를 읽고, 컨테이너 환경변수가 우선합니다.
+
+컨테이너에서는 `RAG_API_URL=http://rag:8001`, 호스트에서 개별 실행할 때는
+`http://127.0.0.1:8001`을 사용합니다. URL에 `/rag-query`를 붙이지 마세요.
+외부 API 키가 없으면 Graph는 `not_configured`로 처리합니다. 키가 있으면 기본 Agent가 연결됩니다.
+
+이 Compose에는 음성・인증 DB・FAISS 볼륨 구성을 추가하지 않았습니다.
+보류한 FAISS 데이터 연결을 구성하기 전에는 컨테이너의 RAG 검색 결과가 비어 있을 수 있습니다.
+PDF OCR은 별도의 Tesseract・한국어 언어팩 구성이 필요하며 이번 이미지에는 추가하지 않았습니다.
