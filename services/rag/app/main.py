@@ -8,16 +8,19 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from langchain_community.vectorstores import FAISS
 from langchain_openai import OpenAIEmbeddings
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.retrieval.policy_search import RAGRequest, RetrievalResponse, search_policies
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 BASE_DIR = Path(__file__).resolve().parent.parent
-FAISS_DIR = BASE_DIR.parent.parent / "data" / "faiss"
 load_dotenv(BASE_DIR / ".env")
 
 if not os.getenv("OPENAI_API_KEY"):
     raise RuntimeError("OPENAI_API_KEY가 설정되지 않았습니다.")
+# Read RAG_FAISS_DIR after loading .env, using the same loader as ingestion.
+from app.retrieval.faiss_store import load_vectorstore
 
 app = FastAPI(title="청년정책 RAG 검색 API", description="FAISS 정책 검색 근거 반환", version="1.0.0")
 app.add_middleware(
