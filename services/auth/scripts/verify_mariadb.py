@@ -45,7 +45,7 @@ def request(port, method, path, body=None, cookie=None, origin=None, headers=Non
         values["Cookie"] = cookie
     if origin:
         values["Origin"] = origin
-    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+    connection = http.client.HTTPConnection("localhost", port, timeout=10)
     try:
         connection.request(method, path, body, values)
         result = connection.getresponse()
