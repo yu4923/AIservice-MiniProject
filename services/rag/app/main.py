@@ -1,16 +1,11 @@
 # This practice code is intended for educational purposes only.
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, Query
+from fastapi import FastAPI, HTTPException
 from sqlalchemy.ext.asyncio import create_async_engine
-from fastapi.responses import JSONResponse
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_openai import ChatOpenAI
 from langchain_openai import OpenAIEmbeddings
 from pydantic import BaseModel, Field
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_core.documents import Document
-from pypdf import PdfReader
 from langchain_core.messages import HumanMessage
 
 # 패키지는 저자 업데이트에 맞춰 해당 버전으로 맞추는 것을 권장
@@ -33,7 +28,6 @@ import os
 import re
 import json
 import asyncio
-import tempfile
 from datetime import datetime, UTC
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
@@ -105,144 +99,6 @@ if os.path.exists(f"{pdf_path}/index.faiss") and os.path.exists(f"{pdf_path}/ind
     print("✅ VECTORSTORE_PDF 로드 완료")
 else:
     print("❌ VECTORSTORE_PDF 벡터화된 파일이 없습니다.")
-
-# ✅ PDF 텍스트 추출
-def load_paper(file_path: str) -> str:
-    reader = PdfReader(file_path)
-    return "\n".join(text for page in reader.pages if (text := page.extract_text()))
-
-# ✅ 웹 검색 → 외부 정보 벡터화
-@app.post("/upload-topic", summary="웹 검색 → 외부 정보 벡터화", tags=["외부 정보"])
-async def upload_topic(topic: str = Query(..., description="검색할 주제")):
-    try:
-        import os, re, aiohttp
-        from langchain_text_splitters import RecursiveCharacterTextSplitter
-        from langchain_community.vectorstores import FAISS
-        from langchain_openai import OpenAIEmbeddings
-
-        # ---- 1) 네이버 뉴스 검색: headers/params 전달 + 페이지네이션 ----
-        NAVER_CLIENT_ID = os.getenv("NAVER_CLIENT_ID", "")
-        NAVER_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET", "")
-
-        search_url = "https://openapi.naver.com/v1/search/news.json"
-        headers = {
-            "X-Naver-Client-Id": NAVER_CLIENT_ID,
-            "X-Naver-Client-Secret": NAVER_CLIENT_SECRET,
-        }
-
-        want = 20          # 수집 목표 건수
-        display = 20       # 요청 건수(최대 100 가능, 요금/정책 고려)
-        start = 1
-        items = []
-
-        async with aiohttp.ClientSession() as session:
-            while len(items) < want:
-                params = {
-                    "query": topic,
-                    "display": display,
-                    "start": start,     # 1, 21, 41 … (display에 맞춰 증가)
-                    "sort": "date",
-                }
-                async with session.get(search_url, headers=headers, params=params) as resp:
-                    # 상태 코드 확인 (401/429 등 조기 감지)
-                    resp.raise_for_status()
-                    data = await resp.json()
-
-                batch = data.get("items", [])
-                if not batch:
-                    break
-
-                # 네이버는 <b>…</b> 태그를 포함 → 제거
-                def strip_tags(s: str) -> str:
-                    return re.sub(r"</?b>", "", s or "")
-
-                for it in batch:
-                    it["title"] = strip_tags(it.get("title", ""))
-                    it["description"] = strip_tags(it.get("description", ""))
-                items.extend(batch)
-
-                start += display
-                if start > 1000:  # API 한계 보호
-                    break
-
-        if not items:
-            return {"message": "검색 결과가 없습니다.", "collected": 0}
-
-        # ---- 2) 텍스트 구성(제목+요약 위주) ----
-        texts = [
-            f"title: {it.get('title','')}\nlink: {it.get('link','')}\ndesc: {it.get('description','')}"
-            for it in items
-        ]
-        # 너무 긴 텍스트는 잘라서 임베딩 안정화
-        texts = [t[:3000] for t in texts]
-
-        # ---- 3) 텍스트 분할 ----
-        splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=80)
-        docs = splitter.create_documents(texts)
-
-        if not docs:
-            return {"message": "벡터화할 문서가 없습니다.", "collected": len(items)}
-
-        # ---- 4) 벡터화 ----
-        global VECTORSTORE_WEB
-        VECTORSTORE_WEB = FAISS.from_documents(docs, OpenAIEmbeddings())
-
-        # ---- 5) 디스크 저장 ----
-        save_path = web_path
-        os.makedirs(save_path, exist_ok=True)
-        VECTORSTORE_WEB.save_local(save_path)
-
-        return {
-            "message": f"{len(docs)}개의 웹 문서(청크) 벡터화 및 저장 완료",
-            "collected": len(items),
-            "sample_titles": [it.get("title", "") for it in items[:3]],
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# ✅ PDF 업로드 및 벡터화
-@app.post("/upload-paper", summary="PDF 업로드 및 벡터화", tags=["PDF 처리"])
-async def upload_pdf(file: UploadFile = File(...)):
-    if not file.filename.endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="PDF 파일만 허용됩니다.")
-
-    try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-            tmp.write(await file.read())
-            tmp_path = tmp.name
-
-        try:
-            paper_text = load_paper(tmp_path)
-        finally:
-            os.unlink(tmp_path)
-        if not paper_text.strip():
-            raise HTTPException(status_code=422, detail="PDF에서 텍스트를 추출하지 못했습니다. 스캔 PDF라면 OCR이 필요합니다.")
-        # [Q01] PDF 청크 설계
-        # [설계 판단] PDF 전체 텍스트를 임베딩하기 전에 검색 가능한 작은 단위로 나누되, 청크 경계에서 정보가 끊어지지 않도록 일부 중첩을 둡니다. 이 서버의 PDF 청크 크기와 중첩 크기를 설정하세요.
-        # [TODO Q01] 아래 ... 부분을 적절한 코드로 교체하세요.
-        splitter = RecursiveCharacterTextSplitter(chunk_size=..., chunk_overlap=...)
-        docs = splitter.create_documents([paper_text], metadatas=[{"source": file.filename}])
-
-        global VECTORSTORE_PDF
-        # [Q02] PDF 임베딩과 벡터 저장소 연결
-        # [설계 판단] 분할한 PDF 문서(docs)를 OpenAI 임베딩 모델로 벡터화하여 FAISS 검색 저장소로 만드세요.
-        # [TODO Q02] 아래 ... 부분을 적절한 코드로 교체하세요.
-        VECTORSTORE_PDF = ...
-
-        # ✅ 디스크에 저장
-        os.makedirs(pdf_path, exist_ok=True)
-        VECTORSTORE_PDF.save_local(pdf_path)
-
-        return JSONResponse(content={
-            "message": f"{len(docs)}개의 PDF 청크 벡터화 및 저장 완료",
-            "extracted_characters": len(paper_text),
-            "preview": paper_text[:300]
-        })
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 # 질의 요청/응답 모델 정의
 # ✅ 질의 요청 모델
