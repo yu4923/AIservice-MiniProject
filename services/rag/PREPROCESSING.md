@@ -140,7 +140,7 @@ python services/rag/scripts/ingest_topics.py --url "https://www.seoul.go.kr/news
 ## FAISS 갱신과 서버 연결
 
 - 동일 출처 갱신 시 그 출처의 이전 청크를 교체합니다. 다른 출처와 수집 실패 출처는 보존합니다.
-- PDF의 조건 충돌은 검수 플래그로 남기고 LLM에 확인 필요임을 전달합니다.
+- PDF의 조건 충돌은 검수 플래그로 남기고 검색 응답의 문서 메타데이터로 전달합니다.
 - 쓰기 잠금 + 새 세대 저장 + `current.json` 원자적 전환으로 실패한 적재를 공개하지 않습니다.
 - 기존 `data/faiss/pdf/index.faiss`, `index.pkl`도 읽습니다. 새 저장부터 `generations/`를 사용합니다.
 - 서버는 `load_vectorstore()`로 활성 세대를 읽고 질의마다 변경 여부를 확인합니다.
@@ -148,7 +148,8 @@ python services/rag/scripts/ingest_topics.py --url "https://www.seoul.go.kr/news
 - 모델 변경은 기존 벡터와 섞지 않습니다. 새 인덱스 디렉터리에서 다시 적재해야 합니다.
 - 세대 기록은 자동 삭제하지 않습니다. 운영자가 백업·보관 정책에 따라 관리하세요.
 - 신뢰할 수 있는 로컬 FAISS 파일만 사용하세요. 메타데이터 로딩에 pickle을 사용합니다.
-- DB 연결·LLM 설정은 기존 `app/main.py`의 환경변수를 그대로 사용합니다.
+- 검색 API는 `services/rag/.env`를 읽으며 임베딩에는 `OPENAI_API_KEY`가 필요합니다.
+  DB 연결과 LLM 답변 생성은 검색 API에서 수행하지 않습니다.
 
 ## 검증
 
@@ -163,19 +164,23 @@ python -m unittest discover -s tests -v
 실제 첨부 주거 과제카드 전체 145쪽, 서울 문서 30쪽, 분야별 과제카드 일부와 서울시 공식
 공고 HTML로 전처리를 검증했습니다. 유료 OpenAI 임베딩·LLM·네이버 인증 검색 호출은 하지 않았습니다.
 
-## 현재 main.py 구조에 맞춘 연결
+## 검색 전용 API 연결
 
-첨부한 최신 main.py를 기준으로 .env·DB 엔진·CORS·FastAPI 설정, `/rag-query`,
-`RAGRequest(prompt, source, top_k)` 및 `AnswerResponse(prompt, response)` 구조를 유지했습니다.
-PDF 검색·LLM 호출 TODO를 구현하고, PDF/웹 모두 비동기 LLM 호출을 사용합니다.
-`top_k`는 요청값을 따릅니다. 출처·PDF 페이지·게시/수집 시각·검수 상태는 컨텍스트에
-포함하지만 HTTP 응답에 별도 필드를 추가하지 않습니다.
+원격 `rag` 브랜치의 검색 역할 분리를 유지합니다. `/rag-query`는
+`RAGRequest(prompt, source, top_k)`를 받아 `prompt`, `source`, `documents`, `context`,
+`index_available`을 반환합니다. `source`는 `web` 또는 `pdf`, `top_k`는 1~50입니다.
+각 검색 문서는 `content`, `metadata`, `distance`를 포함합니다. 출처·PDF 페이지·게시/수집
+시각·검수 상태는 `metadata`로 전달하며, `distance`는 지원 자격 점수가 아닌 FAISS 거리입니다.
+LLM 답변·추천 생성은 이후 그래프에서 담당합니다. 인덱스가 없으면 HTTP 200과
+`index_available: false`, 빈 문서·컨텍스트를 반환합니다. 인덱스 로딩 오류는 HTTP 503,
+검색 오류는 HTTP 500으로 반환합니다.
 
 `app/main.py`는 이 패키지의 `app/retrieval/faiss_store.py`에 있는 `load_vectorstore()`를
 사용하므로 함께 적용해야 합니다. 기존 append_documents 전용 파일과 main.py만 조합하면
 import 오류가 납니다. 웹 수집은 ingest_topics.py에서 수행하고 질의 API는 저장된 웹
 인덱스를 검색합니다. 요청할 때마다 웹 검색을 새로 실행하지는 않습니다.
 
-API 호환 테스트 10개를 추가하여 전체 테스트는 30개입니다. DB 엔진·인덱스·LLM을
-모의 객체로 대체하고 실제 FastAPI HTTP 요청/응답을 확인합니다. 실제 OpenAI/DB 서버
-연결은 실행하지 않았습니다.
+검색 API 테스트 10개와 전처리·저장소 테스트 20개로 전체 테스트는 30개입니다.
+API 테스트는 인덱스를 모의 객체로 대체하고 실제 FastAPI HTTP 요청/응답, 메타데이터 보존,
+입력 검증, 오류 처리, 적재 후 다음 요청에서 최신 인덱스를 읽는 동작을 확인합니다.
+실제 OpenAI/DB 서버 연결은 실행하지 않았습니다.
