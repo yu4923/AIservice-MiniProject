@@ -71,5 +71,5 @@ tests/
 /services/fastapi/rag/data/
 .pytest_cache/
 
-# Existing local PDF input directory used by the root Compose
+# Legacy local PDF directory (not used by the current Compose)
 /services/rag/documents/**

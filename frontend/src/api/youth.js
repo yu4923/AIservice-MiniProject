@@ -5,9 +5,9 @@ const searchBase = import.meta.env.VITE_SEARCH_API_URL || 'http://localhost:8002
 // Compatibility with existing UI callers; authentication is now an HttpOnly cookie.
 // Ending the server session requires the backend logout API, not JS cookie deletion.
 export const clearToken = () => {}
-async function request(base, path, body, method='POST') {
+async function request(base, path, body, method='POST', timeoutMs=45000) {
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 45000)
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
     const response = await fetch(base.replace(/\/$/, '') + path, {
       method, credentials: 'include', signal: controller.signal,
@@ -73,6 +73,21 @@ export function buildSearchProfile(profile) {
   if(household_size!==null&&(!Number.isInteger(household_size)||household_size<1||household_size>30))throw new Error('가구원 수는 1~30 사이의 정수로 입력해 주세요.')
   return {age:profile.age,region:profile.region,statuses:[...profile.statuses],interests:[...profile.interests],details:[...details],income,employment_status,household_size}
 }
+// Display labels only; preserve the server status and eligibility decision.
+// Components can opt in to this helper when their badge rendering is updated.
+export function getPolicyStatusLabel(status) {
+  switch (status) {
+    case 'candidate':
+      return '정책 후보'
+    case 'needs_review':
+      return '추가 확인 필요'
+    case 'not_eligible':
+      return '조건 불일치'
+    default:
+      return '상태 확인 필요'
+  }
+}
+
 // Preserve the complete server response and add aliases used by existing views.
 // Benefit, application period and other absent facts must come from the server.
 function adaptSearchResponse(data) {
@@ -90,7 +105,7 @@ export async function searchPolicies(profile) {
   // Search integration is independent of the login/chat preview mode.
   // Only send fields actually collected by the survey; never invent income data.
   const payload = buildSearchProfile(profile)
-  const data = await request(searchBase, '/search', { question: '설문에서 선택한 조건과 관심 분야에 맞는 청년 정책을 검색해 주세요.', profile: payload })
+  const data = await request(searchBase, '/search', { question: '설문에서 선택한 조건과 관심 분야에 맞는 청년 정책을 검색해 주세요.', profile: payload }, 'POST', 150000)
   return adaptSearchResponse(data)
 }
 export async function ask(question, profile) {
@@ -99,6 +114,6 @@ export async function ask(question, profile) {
   if(value.length<2||value.length>1000)throw new Error('질문은 앞뒤 공백을 제외하고 2~1,000자로 입력해 주세요.')
   if (!profile || !profile.region || !profile.statuses?.length || !profile.interests?.length) throw new Error('맞춤 답변을 위해 먼저 설문을 완료해 주세요.')
   const payload = buildSearchProfile(profile)
-  const data = await request(searchBase, '/search', { question: value, profile: payload })
+  const data = await request(searchBase, '/search', { question: value, profile: payload }, 'POST', 150000)
   return adaptSearchResponse(data)
 }

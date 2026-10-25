@@ -129,8 +129,8 @@ services:
       - ./data/faiss-kure-v1:/workspace/data/faiss-kure-v1
       - ./data/preprocessed:/workspace/data/preprocessed
       - ./data/hf-cache:/cache/huggingface
-      # Existing local PDFs stay here; Git moved only the tracked placeholder.
-      - ./services/rag/documents:/input:ro
+      # Use the same PDF directory as the standalone ingestion script.
+      - ./services/fastapi/rag/documents:/input:ro
     command: ["python", "rag/scripts/ingest_papers.py", "--input", "/input"]
 
 volumes:

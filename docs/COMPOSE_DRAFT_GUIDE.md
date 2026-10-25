@@ -36,12 +36,12 @@ chmod 600 .env
 ## 2. 폴더와 설정 확인
 
 ```bash
-mkdir -p services/rag/documents data/faiss-kure-v1 data/preprocessed data/hf-cache
+mkdir -p services/fastapi/rag/documents data/faiss-kure-v1 data/preprocessed data/hf-cache
 docker compose config --quiet
 docker compose config --services
 ```
 
-기존 로컬 PDF 위치를 유지하기 위해 적재 입력은 `services/rag/documents`입니다. 실행 코드는 새 `services/fastapi`에서 빌드합니다. 입력 PDF는 이미지나 저장소에 포함하지 않고 직접 준비합니다.
+적재 입력은 `services/fastapi/rag/documents`입니다. Compose와 로컬 적재 스크립트가 같은 폴더를 사용합니다. 입력 PDF는 이미지나 저장소에 포함하지 않고 직접 준비합니다. 이전 `services/rag/documents`에 PDF가 있다면 현재 입력 폴더로 복사한 뒤 실행하세요.
 
 ## 3. 본문 적재 준비
 
@@ -100,7 +100,7 @@ DB를 처음 만들 때 팀의 `schema.sql`을 적용합니다. 기존 DB Volume
 | PC `data/faiss-kure-v1` | `/workspace/data/faiss-kure-v1` | 적재는 쓰기, fastapi는 읽기 전용 |
 | PC `data/hf-cache` | `/cache/huggingface` | KURE 모델 재다운로드 방지 |
 | PC `data/preprocessed` | 적재 `/workspace/data/preprocessed` | 전처리 결과 |
-| PC `services/rag/documents` | 적재 `/input` | 원본 PDF 읽기 전용 |
+| PC `services/fastapi/rag/documents` | 적재 `/input` | 원본 PDF 읽기 전용 |
 | `auth_jwt_logs` Volume | auth `/app/jwt_log` | 인증 로그 |
 | `recommendation_jwt_logs` Volume | fastapi `/workspace/services/fastapi/jwt_log` | 통합 서버 인증 로그 |
 
