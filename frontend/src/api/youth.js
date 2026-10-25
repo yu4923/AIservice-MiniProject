@@ -1,7 +1,7 @@
 export const demoMode = import.meta.env.VITE_DEMO_MODE === 'true'
 const authBase = import.meta.env.VITE_AUTH_API_URL || 'http://localhost:8080'
 const aiBase = import.meta.env.VITE_AI_API_URL || import.meta.env.VITE_RAG_API_URL || 'http://localhost:8001'
-const recommendBase = import.meta.env.VITE_RECOMMEND_API_URL || 'http://localhost:8002'
+const searchBase = import.meta.env.VITE_SEARCH_API_URL || 'http://localhost:8002'
 // Compatibility with existing UI callers; authentication is now an HttpOnly cookie.
 // Ending the server session requires the backend logout API, not JS cookie deletion.
 export const clearToken = () => {}
@@ -52,7 +52,7 @@ const detailValues={employment:['취업 준비 비용','면접 지원','일 경�
 function validateArray(value,min,max,allowed,label){
   if(!Array.isArray(value)||value.length<min||value.length>max||new Set(value).size!==value.length||value.some(item=>typeof item!=='string'||!allowed.includes(item)))throw new Error(`${label} 선택값을 확인해 주세요.`)
 }
-export function buildRecommendProfile(profile) {
+export function buildSearchProfile(profile) {
   if(!profile||typeof profile!=='object'||Array.isArray(profile))throw new Error('설문 정보를 먼저 입력해 주세요.')
   if(!Number.isInteger(profile.age)||profile.age<0||profile.age>120)throw new Error('만 나이는 0~120 사이의 정수로 입력해 주세요.')
   if(!regions.includes(profile.region))throw new Error('거주 지역을 선택해 주세요.')
@@ -73,17 +73,32 @@ export function buildRecommendProfile(profile) {
   if(household_size!==null&&(!Number.isInteger(household_size)||household_size<1||household_size>30))throw new Error('가구원 수는 1~30 사이의 정수로 입력해 주세요.')
   return {age:profile.age,region:profile.region,statuses:[...profile.statuses],interests:[...profile.interests],details:[...details],income,employment_status,household_size}
 }
-export async function recommendPolicies(profile) {
-  // Recommendation integration is independent of the login/chat preview mode.
+// Preserve the complete server response and add aliases used by existing views.
+// Benefit, application period and other absent facts must come from the server.
+function adaptSearchResponse(data) {
+  if (!Array.isArray(data.policies)) return data
+  return {
+    ...data,
+    policies: data.policies.map(policy => ({
+      ...policy,
+      name: policy.policy_name ?? policy.name,
+      recommendation_reason: policy.reason ?? policy.recommendation_reason,
+    })),
+  }
+}
+export async function searchPolicies(profile) {
+  // Search integration is independent of the login/chat preview mode.
   // Only send fields actually collected by the survey; never invent income data.
-  const payload = buildRecommendProfile(profile)
-  return request(recommendBase, '/recommend', { question: '설문에서 선택한 조건과 관심 분야에 맞는 청년 정책을 추천해 주세요.', profile: payload })
+  const payload = buildSearchProfile(profile)
+  const data = await request(searchBase, '/search', { question: '설문에서 선택한 조건과 관심 분야에 맞는 청년 정책을 검색해 주세요.', profile: payload })
+  return adaptSearchResponse(data)
 }
 export async function ask(question, profile) {
   if(typeof question!=='string')throw new Error('질문을 입력해 주세요.')
   const value=question.trim()
   if(value.length<2||value.length>1000)throw new Error('질문은 앞뒤 공백을 제외하고 2~1,000자로 입력해 주세요.')
   if (!profile || !profile.region || !profile.statuses?.length || !profile.interests?.length) throw new Error('맞춤 답변을 위해 먼저 설문을 완료해 주세요.')
-  const payload = buildRecommendProfile(profile)
-  return request(recommendBase, '/recommend', { question: value, profile: payload })
+  const payload = buildSearchProfile(profile)
+  const data = await request(searchBase, '/search', { question: value, profile: payload })
+  return adaptSearchResponse(data)
 }

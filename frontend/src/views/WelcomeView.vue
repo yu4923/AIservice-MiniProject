@@ -15,7 +15,7 @@ const welcomeLogo = matchMedia('(prefers-reduced-motion: reduce)').matches ? log
     <div class="welcome-shade" aria-hidden="true"></div>
     <section class="welcome-content" aria-label="청년정책 나침반">
       <h1 aria-label="YOUTH COMPASS"><span class="welcome-logo" aria-hidden="true" v-html="welcomeLogo"></span></h1>
-      <p>청년들을 위한 맞춤형 정책 추천 서비스</p>
+      <p>청년들을 위한 맞춤형 정책 검색 서비스</p>
       <button type="button" @click="router.push('/login')">
         시작하기 <img src="/figma/2058e.svg" alt="" aria-hidden="true">
       </button>

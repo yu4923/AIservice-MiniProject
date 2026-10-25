@@ -23,9 +23,9 @@ services:
         VITE_AUTH_API_URL: http://localhost:${AUTH_PORT:-8080}
         VITE_LOGIN_PATH: /api/auth/login
         VITE_SIGNUP_PATH: /api/auth/signup
-        VITE_RAG_API_URL: http://localhost:${RECOMMENDATION_PORT:-8002}
-        VITE_INTERNAL_RAG_API_URL: http://localhost:${RECOMMENDATION_PORT:-8002}
-        VITE_RECOMMEND_API_URL: http://localhost:${RECOMMENDATION_PORT:-8002}
+        VITE_RAG_API_URL: http://localhost:${SEARCH_PORT:-8002}
+        VITE_INTERNAL_RAG_API_URL: http://localhost:${SEARCH_PORT:-8002}
+        VITE_SEARCH_API_URL: http://localhost:${SEARCH_PORT:-8002}
     ports:
       - "127.0.0.1:${FRONTEND_PORT:-5174}:80"
     depends_on:
@@ -107,7 +107,7 @@ services:
       # Reuse the existing log volume at the new application path.
       - recommendation_jwt_logs:/workspace/services/fastapi/jwt_log
     ports:
-      - "127.0.0.1:${RECOMMENDATION_PORT:-8002}:8002"
+      - "127.0.0.1:${SEARCH_PORT:-8002}:8002"
     healthcheck:
       # HTTP readiness only; verify real FAISS searches separately after ingestion.
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health', timeout=3)"]

@@ -7,11 +7,11 @@ aimini/
 ├── frontend/                    # 화면 담당 영역
 ├── services/
 │   ├── auth/                    # Spring Boot 인증・MariaDB 연동
-│   ├── fastapi/                 # 추천・RAG 통합 실행
+│   ├── fastapi/                 # 검색・RAG 통합 실행
 │   │   ├── app/
-│   │   │   ├── main.py          # 추천 API・시작 초기화
+│   │   │   ├── main.py          # 검색 API・시작 초기화
 │   │   │   ├── auth.py          # JWT 검증
-│   │   │   ├── graph/           # 추천 흐름・조건 비교・생성
+│   │   │   ├── graph/           # 검색 흐름・조건 비교・생성
 │   │   │   ├── agents/          # 외부 정책 보완
 │   │   │   └── tools/           # 내부 RAG・정책 API 연결
 │   │   ├── rag/
@@ -46,7 +46,7 @@ aimini/
 |---|---|
 | 백엔드 API | `FastAPI()` 설정, CORS·미들웨어, 라우트 선언, `input_validation.RAGRequest`·`AnswerResponse`, 입력 검증·HTTP 응답·로그 |
 | 데이터 파이프라인 | `load_paper()`, `upload_topic()`·`upload_pdf()` 내부의 수집·텍스트 추출·청킹·임베딩·저장, FAISS 인덱스 로딩 |
-| LLM 서빙 / RAG | `services/fastapi/app/graph/nodes.py`의 검색 조건·근거 평가·조건 비교·추천 생성, `services/fastapi/app/agents/`의 외부 정보 보완 |
+| LLM 서빙 / RAG | `services/fastapi/app/graph/nodes.py`의 검색 조건·근거 평가·조건 비교·검색 답변 생성, `services/fastapi/app/agents/`의 외부 정보 보완 |
 
 `AnswerResponse`와 프런트엔드의 응답 처리는 백엔드 API·LLM 서빙 / RAG·프런트엔드 담당자가 함께 맞추는 영역입니다.
 

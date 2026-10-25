@@ -200,7 +200,7 @@ def forwarded_cookies() -> dict[str, str]:
 
 
 def forwarded_headers() -> dict[str, str]:
-    """#JWT_code: 추천과 RAG 로그를 같은 요청 ID로 연결한다."""
+    """#JWT_code: 검색과 RAG 로그를 같은 요청 ID로 연결한다."""
     context = _request_context.get()
     if context is None:
         _reject("missing_request_context")

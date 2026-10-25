@@ -49,12 +49,51 @@ class Reasoner:
 
 
 def request(**changes):
-    data = dict(question='주거 정책을 추천해줘', profile=dict(age=25, region='서울', statuses=['unemployed'], interests=['housing'], details=['월세·주거비']), source='web')
+    data = dict(question='주거 정책을 검색해줘', profile=dict(age=25, region='서울', statuses=['unemployed'], interests=['housing'], details=['월세·주거비']), source='web')
     data.update(changes)
     return RAGRequest(**data)
 
 
 class GraphTests(unittest.IsolatedAsyncioTestCase):
+    async def test_policy_details_survive_graph_response(self):
+        class DetailReasoner(Reasoner):
+            async def compare(self, payload):
+                return ComparisonResult(policies=[PolicyMatch(
+                    policy_name='청년 월세 지원', status='needs_review', reason='현재 모집 확인 필요',
+                    missing_fields=[], evidence_ids=['V1'], benefit='월 최대 20만원 지원',
+                    application_period={'display': '2026. 3. 1. ~ 2026. 3. 31.'})], follow_up_question='')
+        document = Document(page_content='월 최대 20만원 지원. 신청 기간: 2026. 3. 1. ~ 2026. 3. 31.',
+                            metadata=DOC.metadata)
+        result = await PolicyRagService(Retriever([document]), DetailReasoner(), Agent()).answer_question(request())
+        policy = result.model_dump()['policies'][0]
+        self.assertEqual(policy['benefit'], '월 최대 20만원 지원')
+        self.assertEqual(policy['application_period']['display'], '2026. 3. 1. ~ 2026. 3. 31.')
+        self.assertEqual(policy['status'], 'needs_review')
+        self.assertTrue(result.needs_review)
+
+    async def test_unknown_policy_details_are_null(self):
+        result = await PolicyRagService(Retriever([DOC]), Reasoner(), Agent()).answer_question(request())
+        policy = result.model_dump()['policies'][0]
+        self.assertIsNone(policy['benefit'])
+        self.assertIsNone(policy['application_period'])
+
+    async def test_compare_requests_grounded_details_with_nullable_schema(self):
+        captured = {}
+        class RecordingReasoner(LLMReasoner):
+            async def _ask(self, schema, instruction, payload):
+                captured.update(schema=schema, instruction=instruction, payload=payload)
+                return ComparisonResult(policies=[], follow_up_question='')
+        await RecordingReasoner().compare({'documents': []})
+        self.assertIs(captured['schema'], ComparisonResult)
+        self.assertIn('benefit', captured['instruction'])
+        self.assertIn('application_period.display', captured['instruction'])
+        self.assertIn('지급 기간', captured['instruction'])
+        self.assertIn('null', captured['instruction'])
+        schema = ComparisonResult.model_json_schema()
+        properties = schema['$defs']['PolicyMatch']['properties']
+        self.assertIn('benefit', properties)
+        self.assertIn('application_period', properties)
+
     async def test_sufficient_rag_skips_agent(self):
         agent = Agent()
         result = await PolicyRagService(Retriever([DOC]), Reasoner(), agent).answer_question(request())

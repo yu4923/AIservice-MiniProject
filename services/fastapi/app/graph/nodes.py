@@ -94,7 +94,13 @@ class LLMReasoner:
             "최종 신청 자격을 확정하지 마라. 현재 날짜와 모집 기간도 비교하라. "
             "evidence_review의 미확인 사항을 반영하라. 현재 모집 공고가 없다는 이유만으로 "
             "not_eligible로 판정하지 말고 needs_review로 두어라. "
-            "각 정책에 실제 근거 ID를 연결하고, 필요한 사용자 정보만 추가 질문하라.", payload)
+            "각 정책에 실제 근거 ID를 연결하고, 필요한 사용자 정보만 추가 질문하라. "
+            "benefit에는 해당 evidence_ids의 문서에서 확인한 지원 내용·금액·방식을 요약하라. "
+            "reason은 사용자 조건과의 비교 사유이며 benefit으로 대신 사용하지 마라. "
+            "application_period.display에는 같은 근거에서 명시한 신청·접수 기간을 기록하라. "
+            "사업 시행 기간·지원금 지급 기간·문서 연도를 신청 기간으로 바꾸지 마라. "
+            "과거 공고의 기간은 연도를 보존하고 현재 모집 기간으로 추정하지 마라. "
+            "각 항목의 근거가 없으면 benefit 또는 application_period를 null로 반환하라.", payload)
 
     async def generate(self, payload):
         return await self._ask(AnswerDraft,
@@ -301,7 +307,7 @@ class PolicyNodes:
         if all(policy.status == "not_eligible" for policy in policies):
             explanation = "\n".join(f"- {policy.policy_name}: {policy.reason}" for policy in policies)
             return self._step(state, "generate", status="answered", cited_ids=sorted(ids),
-                answer=application_notice("검색된 정책은 확인된 조건상 추천 대상에서 제외됩니다.\n" + explanation, state["review"]),
+                answer=application_notice("검색된 정책은 확인된 사용자 조건과 일치하지 않습니다.\n" + explanation, state["review"]),
                 follow_up_question=state["comparison"].follow_up_question)
         payload = payload_for(state, docs)
         payload["comparison"] = state["comparison"].model_dump()

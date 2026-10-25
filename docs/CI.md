@@ -2,7 +2,7 @@
 
 # 백엔드 CI 사용 안내
 
-컨테이너 배포 없이 GitHub Actions에서 검증합니다. RAG와 추천의 테스트 job 분리는
+컨테이너 배포 없이 GitHub Actions에서 검증합니다. RAG와 검색의 테스트 job 분리는
 배포 컨테이너 분리를 요구하지 않습니다. F/E와 음성은 이번 범위에서 제외합니다.
 
 ## 자동 검사: Backend CI

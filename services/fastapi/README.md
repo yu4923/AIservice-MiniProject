@@ -1,6 +1,6 @@
 # FastAPI 실행
 
-`app/`은 JWT 인증・설문 검증・LangGraph・추천 생성을 담당하고,
+`app/`은 JWT 인증・설문 검증・LangGraph・검색 답변 생성을 담당하고,
 `rag/`는 자료 적재・KURE 임베딩・FAISS 내부 검색을 담당합니다.
 하나의 Python 프로세스에서 동작하며 RAG HTTP 서버는 실행하지 않습니다.
 
@@ -19,7 +19,7 @@ cp -n .env.example .env
 `.env`의 다음 값을 입력합니다. 실제 키는 Git에 올리지 않습니다.
 
 - `JWT_SECRET`: Spring 인증 서버와 동일한 값. 없으면 서버가 시작되지 않습니다.
-- `OPENAI_API_KEY`: 추천 생성용.
+- `OPENAI_API_KEY`: 검색 답변 생성용.
 - `YOUTH_POLICY_API_KEY`: 온통청년 정책 조회용. 없으면 외부 보완은 not_configured.
 - `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET`: 최초 웹 검색 적재에 필요.
 - `RAG_REQUIRED_INDEXES`: 기본 web. PDF도 필수면 web,pdf로 설정하고 `rag/documents/`에 PDF를 넣습니다.
@@ -44,7 +44,7 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8002 --workers 1
 `RAG_BUILD_ON_START=false`는 자동 적재를 생략합니다. 인덱스가 없으면 Graph가 빈 검색 결과를 받고 외부 API 보완을 시도합니다.
 전체 초기화를 비동기 스레드에서 수행하되 서버는 완료를 기다립니다.
 
-- `POST /recommend`: JWT 인증이 필요한 유일한 업무 API.
+- `POST /search`: JWT 인증이 필요한 유일한 업무 API.
 - `GET /health`: 서버・설정 상태 확인. 외부 서비스 성공 보장 아님.
 - `GET /docs`: Swagger 문서.
 - `/rag-query`는 제거했습니다.
@@ -56,7 +56,7 @@ Spring에서 먼저 로그인한 브라우저가 ACCESS_TOKEN 쿠키를 보내�
 
 ```json
 {
-  "question": "내 조건에 맞는 주거 정책을 추천해줘",
+  "question": "내 조건에 맞는 주거 정책을 검색해줘",
   "profile": {
     "age": 25,
     "region": "서울",
@@ -70,7 +70,16 @@ Spring에서 먼저 로그인한 브라우저가 ACCESS_TOKEN 쿠키를 보내�
 ```
 
 소득은 필수 입력이 아닙니다. 미입력 소득을 추정하지 않고 조건 비교 결과에 확인 필요 항목으로 남깁니다.
-`node_path`, `api_status`, `citations`, `policies`로 검색・외부 보완・추천 결과를 확인할 수 있습니다.
+`node_path`, `api_status`, `citations`, `policies`로 검색・외부 보완 결과를 확인할 수 있습니다.
+
+각 `policies` 항목은 `policy_name`, `reason`, `status`, `missing_fields`, `evidence_ids`와
+`benefit`, `application_period`를 반환합니다. LLM은 해당 근거에서 확인된 지원 내용을
+`benefit`에, 신청·접수 기간을 `application_period: {"display": "공고에 명시된 기간"}`에 추출합니다.
+근거가 없는 항목은 `null`입니다. 시행·지급 기간을 신청 기간으로 추정하지 않으며,
+과거 공고는 원래 연도를 유지합니다. 기간이 있어도 현재 신청 가능 여부를 보장하지 않습니다.
+
+업무 API는 `POST /search`이며 이전 `/recommend`는 제공하지 않습니다.
+프론트 설정은 `VITE_SEARCH_API_URL`, 루트 Compose 포트 설정은 `SEARCH_PORT`를 사용합니다.
 
 ## 수동 적재와 테스트
 

@@ -1,4 +1,4 @@
-"""추천 서비스의 FastAPI 진입점입니다. 백업의 Graph 호출 부분을 복원했습니다."""
+"""검색 서비스의 FastAPI 진입점입니다. 백업의 Graph 호출 부분을 복원했습니다."""
 
 import os
 from pathlib import Path
@@ -22,7 +22,7 @@ import asyncio
 from rag.bootstrap import prepare_indexes
 
 
-# [설정 경로 통합] LLM과 정책 API가 같은 recommendation/.env를 읽게 합니다.
+# [설정 경로 통합] LLM과 정책 API가 같은 services/fastapi/.env를 읽게 합니다.
 # .env.example은 설정 견본이고, 실행할 때 읽는 파일은 실제 .env입니다.
 # 기존 share 폴더나 다른 서비스의 .env를 복사하거나 읽지 않습니다.
 # 터미널·컨테이너에서 이미 전달한 환경변수가 .env보다 우선합니다.
@@ -32,14 +32,14 @@ from rag.bootstrap import prepare_indexes
 # API는 요청과 응답만 담당하고, 실제 처리는 PolicyRagService에 맡깁니다.
 # Default GraphPolicyAgent uses the policy API; tests can inject another agent.
 def create_app(service: PolicyRagService | None = None, *, api_agent=None, initialize_indexes: bool = True) -> FastAPI:
-    """#JWT_code: 프론트 입력을 받는 추천 API에 쿠키 인증과 CORS를 연결한다."""
+    """#JWT_code: 프론트 입력을 받는 검색 API에 쿠키 인증과 CORS를 연결한다."""
     @asynccontextmanager
     async def lifespan(application):
         if initialize_indexes:
             await asyncio.to_thread(prepare_indexes)
         yield
 
-    application = FastAPI(title="청년정책 추천 API", version="1.0.0", lifespan=lifespan)
+    application = FastAPI(title="청년정책 검색 API", version="1.0.0", lifespan=lifespan)
     #JWT_code: 인증 쿠키 요청의 응답을 읽을 수 있는 프론트 Origin을 명시한다.
     application.add_middleware(
         CORSMiddleware,
@@ -53,9 +53,9 @@ def create_app(service: PolicyRagService | None = None, *, api_agent=None, initi
         retriever=LocalRAGRetriever(), reasoner=LLMReasoner(), api_agent=api_agent,
     )
 
-    # [추천 API] 사용자 질문과 profile을 받습니다. context는 받지 않습니다.
-    @application.post("/recommend", response_model=AnswerResponse, tags=["추천"])
-    async def recommend(
+    # [검색 API] 사용자 질문과 profile을 받습니다. context는 받지 않습니다.
+    @application.post("/search", response_model=AnswerResponse, tags=["검색"])
+    async def search(
         request: RAGRequest, response: Response, _user=Depends(get_current_user),
     ):
         """#JWT_code: JWT를 검증한 요청의 질문과 profile만 기존 처리부에 전달한다."""
@@ -78,7 +78,7 @@ def create_app(service: PolicyRagService | None = None, *, api_agent=None, initi
         # 이 경로는 LLM·RAG·외부 정책 API를 실제 호출하지 않습니다.
         return {
             "status": "ok",
-            "service": "recommendation",
+            "service": "search",
             "llm_configured": bool(os.getenv("OPENAI_API_KEY")),
             "policy_agent_configured": bool(
                 getattr(application.state.policy_service.api_agent, "configured", False)),

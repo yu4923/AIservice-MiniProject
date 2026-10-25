@@ -1,6 +1,6 @@
 # 통합 Docker Compose 실행 안내
 
-저장소 최상위 `compose.yaml`을 사용합니다. 브라우저 → Vue 프론트 → Spring 인증 및 통합 FastAPI → FAISS·외부 LLM 구조입니다. FastAPI 안에 추천과 RAG 검색이 함께 있습니다. 선택 기능인 음성은 포함하지 않았습니다.
+저장소 최상위 `compose.yaml`을 사용합니다. 브라우저 → Vue 프론트 → Spring 인증 및 통합 FastAPI → FAISS·외부 LLM 구조입니다. FastAPI 안에 검색과 RAG 검색이 함께 있습니다. 선택 기능인 음성은 포함하지 않았습니다.
 
 ## 서비스와 주소
 
@@ -8,7 +8,7 @@
 |---|---|---|
 | frontend | Vue 빌드 결과를 Nginx로 제공 | http://localhost:5174 |
 | auth | 회원가입·로그인·JWT | http://localhost:8080/health |
-| fastapi | 내부 FAISS 검색·정책 추천·LLM 답변 | http://localhost:8002/docs |
+| fastapi | 내부 FAISS 검색·정책 검색·LLM 답변 | http://localhost:8002/docs |
 | db | MariaDB 회원정보 | Compose 내부 `db:3306`만 사용 |
 | ingest | `tools` 프로필의 일회성 적재 도구 | 공개 포트 없음 |
 
@@ -84,7 +84,7 @@ DB를 처음 만들 때 팀의 `schema.sql`을 적용합니다. 기존 DB Volume
 ## 5. 화면과 검색 점검
 
 1. `http://localhost:5174`에서 회원가입·로그인을 확인합니다.
-2. 실제 설문을 입력합니다. 질문·추천 요청은 `question`과 `profile`을 함께 보냅니다.
+2. 실제 설문을 입력합니다. 질문·검색 요청은 `question`과 `profile`을 함께 보냅니다.
 3. 정책 질문을 입력해 답변의 내용·연도·출처·PDF 쪽수를 확인합니다.
 4. 문서에 있는 정책 내용은 안내하되, 현재 모집 여부가 미확인이면 최신 공식 공고 확인 안내가 나오는지 확인합니다.
 5. 출처가 실제 답변을 뒷받침하는지 원문과 비교합니다. 확인되지 않은 자격조건을 확정 정보로 취급하지 않습니다.
