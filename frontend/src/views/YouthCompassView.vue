@@ -1,8 +1,20 @@
 <script setup>
-import { ref, computed, watch, nextTick, onMounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Brand from '../components/Brand.vue'
 import ChatAttachments from '../components/ChatAttachments.vue'
+import AiResponse from '../components/AiResponse.vue'
+import { loadChat, saveChat } from '../api/chatHistory'
+
+const vComposerSize = {
+ mounted(el) {
+  const main=el.closest('main')
+  const observer=new ResizeObserver(()=>main?.style.setProperty('--composer-height',`${el.getBoundingClientRect().height}px`))
+  observer.observe(el)
+  el._composerObserver=observer
+ },
+ unmounted(el) { el._composerObserver?.disconnect() }
+}
 import { emptyProfile, loadProfile, saveProfile, clearProfile } from '../api/profileSession'
 import { demoMode, login, signup, ask, clearToken, searchPolicies, checkAuth, logoutSession } from '../api/youth'
 
@@ -13,11 +25,18 @@ const go = (path) => router.push(path)
 const user = ref(null)
 const loginId=ref('')
 const logoutError=ref('')
+const restoringChat=ref(true)
+const historyNotice=ref('')
 let authEpoch=0
 onMounted(async()=>{
  const epoch=authEpoch
+ const loadingStarted=performance.now()
  try{const session=await checkAuth();if(epoch!==authEpoch||!session?.ok)return;user.value={id:session.id,nickname:session.id};restoreSurvey(session.id)}
  catch(e){if(epoch===authEpoch&&e.status===401){user.value=null;loginId.value=''}}
+ finally{
+  if(route.value==='/chat')await new Promise(resolve=>setTimeout(resolve,Math.max(0,900-(performance.now()-loadingStarted))))
+  restoringChat.value=false
+ }
 })
 const username=ref(''), password=ref(''), showPassword=ref(false), error=ref(''), success=ref(''), busy=ref(false)
 const isSignup=computed(()=>route.value==='/signup')
@@ -33,6 +52,7 @@ function restoreSurvey(id){
  try{profile.value=loadProfile(sessionStorage,id)}catch{profile.value=emptyProfile()}
  householdInput.value=profile.value.household_size===null?'':String(profile.value.household_size)
  loginId.value=id
+ restoreChat(id)
 }
 watch(profile,value=>{try{saveProfile(sessionStorage,loginId.value,value)}catch{}},{deep:true,flush:'sync'})
 
@@ -116,6 +136,91 @@ async function search(){if(searchBusy.value)return;searchError.value='';result.v
 async function sendQuestion(text){if(chatBusy.value)return;const q=(text||question.value).trim();if(!q)return;chatError.value='';if(q.length>1000){chatError.value='질문은 1000자 이하로 입력해 주세요.';return}question.value=q;chatBusy.value=true;try{const r=await ask(q,profile.value);messages.value.push({question:q,...r});question.value=''}catch(e){chatError.value=e.message;if(e.status===401){clearToken();user.value=null}}finally{chatBusy.value=false}}
 const selectedPolicy=ref(null)
 const voiceNotice=ref('')
+const followupQuestions=computed(()=>{
+ const latest=messages.value[messages.value.length-1]
+ const policy=latest?.policies?.[0]||policies.value[0]
+ const name=policy?.policy_name||policy?.name
+ const region=profile.value.region
+ const labels={employment:'취업',housing:'주거',education:'교육',startup:'창업'}
+ const interest=profile.value.interests.map(id=>labels[id]).filter(Boolean).join('·')||'청년'
+ return [
+  name?`${name}의 신청 조건을 자세히 알려줘`:`${region?region+'에서 ':''}내 조건에 맞는 ${interest} 지원을 알려줘`,
+  name?`${name} 신청에 필요한 서류와 절차를 알려줘`:'추천한 정책의 신청 서류와 절차를 알려줘',
+  '추천한 정책 중 내 상황에서 먼저 확인하면 좋을 것을 비교해줘'
+ ]
+})
+let restoringHistory=false
+function restoreChat(id){
+ restoringHistory=true
+ try{
+  const saved=loadChat(localStorage,id)
+  messages.value=saved?.messages||[]
+  result.value=saved?.result||null
+  policies.value=Array.isArray(result.value?.policies)?result.value.policies:[]
+  if(saved?.profile){
+   const restored=loadProfile({getItem:()=>JSON.stringify({owner:id,profile:saved.profile}),removeItem:()=>{}},id)
+   if(restored.region){profile.value=restored;householdInput.value=restored.household_size===null?'':String(restored.household_size)}
+  }
+ }catch{historyNotice.value='저장된 대화를 불러오지 못했어요.'}
+ finally{restoringHistory=false}
+}
+watch([messages,result,profile],()=>{
+ if(restoringHistory||!loginId.value||restoringChat.value)return
+ let saved=false
+ try{saved=saveChat(localStorage,loginId.value,{messages:messages.value,result:result.value,profile:profile.value})}catch{}
+ historyNotice.value=saved?'':'브라우저 저장 공간을 사용할 수 없어 대화가 유지되지 않을 수 있어요.'
+},{deep:true,flush:'sync'})
+let followingReply=false
+let stopFollowing=()=>{}
+function trackReply(){
+ stopFollowing()
+ followingReply=true
+ const stop=()=>{followingReply=false}
+ const onKey=event=>{if(['ArrowUp','ArrowDown','PageUp','PageDown','Home','End',' '].includes(event.key)&&!['TEXTAREA','INPUT','SELECT'].includes(event.target.tagName))stop()}
+ window.addEventListener('wheel',stop,{passive:true})
+ window.addEventListener('touchmove',stop,{passive:true})
+ window.addEventListener('keydown',onKey)
+ stopFollowing=()=>{window.removeEventListener('wheel',stop);window.removeEventListener('touchmove',stop);window.removeEventListener('keydown',onKey)}
+}
+async function revealReply(){
+ await nextTick()
+ await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))
+ if(!followingReply||route.value!=='/chat')return
+ const responses=document.querySelectorAll('.ai-conversation .ai-response')
+ const target=responses[responses.length-1]
+ if(!target)return
+ const toolbar=document.querySelector('.chat-toolbar')
+ const visibleTop=(toolbar?.getBoundingClientRect().bottom||100)+20
+ const rect=target.getBoundingClientRect()
+ const composer=document.querySelector('.ai-composer')
+ const visibleBottom=(composer?.getBoundingClientRect().top||window.innerHeight)-28
+ const top=chatBusy.value||searchBusy.value
+  ?window.scrollY+rect.top-visibleTop
+  :window.scrollY+rect.bottom-visibleBottom
+ window.scrollTo({top:Math.max(0,top),behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'})
+}
+watch([chatBusy,searchBusy],([chat,search],[wasChat,wasSearch])=>{
+ if(chat&&!wasChat||search&&!wasSearch){trackReply();revealReply()}
+ else if(!chat&&!search&&(wasChat||wasSearch)){revealReply().finally(()=>stopFollowing())}
+},{flush:'post'})
+watch(route,()=>{followingReply=false;stopFollowing()})
+onBeforeUnmount(()=>stopFollowing())
+function newChat(){
+ if(chatBusy.value||searchBusy.value)return
+ messages.value=[];result.value=null;policies.value=[];question.value='';chatError.value='';searchError.value='';voiceNotice.value=''
+ window.scrollTo({top:0,behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'})
+ nextTick(()=>document.getElementById('ai-question')?.focus({preventScroll:true}))
+}
+function backFromChat(){if(window.history.state?.back)router.back();else go('/home')}
+function jumpToRecommendation(){
+ followingReply=false;stopFollowing()
+ const target=document.getElementById('personal-recommendation')
+ if(!target)return
+ const toolbar=document.querySelector('.chat-toolbar')
+ const top=window.scrollY+target.getBoundingClientRect().top-(toolbar?.getBoundingClientRect().bottom||100)-16
+ window.scrollTo({top:Math.max(0,top),behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'})
+ target.focus({preventScroll:true})
+}
 function onChatKeydown(event){
  if(event.key!=='Enter'||event.shiftKey||event.isComposing||event.keyCode===229||event.repeat)return
  event.preventDefault()
@@ -175,6 +280,15 @@ watch(route,()=>{error.value='';showPassword.value=false})
    <nav class="survey-navigation" aria-label="설문 단계"><button v-if="step>1" class="pill" @click="go('/survey/'+(step-1))"><span>←</span> 이전</button><button v-else class="text-button" @click="go('/home')">← 홈으로</button><div><button class="pill" :disabled="!stepValid" @click="next">{{step===5?'내 맞춤 정책 보기':'다음'}} <span>→</span></button><button v-if="step===5" class="skip-survey" @click="profile.details=[];finish()">건너뛰고 검색하기</button></div></nav>
   </main>
   <main v-else-if="route==='/chat'" id="main" class="ai-conversation" data-node-id="18:1111">
+   <div v-if="restoringChat" class="chat-restore" role="status" aria-label="대화를 불러오는 중">
+    <svg viewBox="0 0 60 60" aria-hidden="true"><circle cx="30" cy="30" r="24" fill="none" stroke="#8739ee" stroke-width="5"/><g class="restore-needle"><path d="M15 39 39 15 45 21 21 45Z" fill="#8739ee"/></g></svg>
+    <p>대화를 불러오고 있어요</p>
+   </div>
+   <p v-if="historyNotice" class="history-notice" role="status">{{historyNotice}}</p>
+   <nav class="chat-toolbar" aria-label="대화 메뉴">
+    <button type="button" @click="backFromChat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 5-7 7 7 7M3 12h18"/></svg>뒤로</button>
+    <button type="button" :disabled="chatBusy||searchBusy" @click="newChat"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v8m-4-4h8"/></svg>새 채팅</button>
+   </nav>
    <img class="ai-glow ai-glow-right" src="/figma/f58fd.svg" alt=""><img class="ai-glow ai-glow-left" src="/figma/f58fd.svg" alt="">
    <h1>안녕하세요 {{loginId||'청년'}}님, 환영합니다!</h1>
    <div v-orb-motion class="ai-orb" aria-hidden="true"><img class="orb-glow" src="/figma/94e57.svg" alt=""><div class="orb-texture"></div><img class="orb-ring-inner" src="/figma/ce02e.svg" alt=""><img class="orb-ring-outer" src="/figma/39a8d.svg" alt=""><span class="orb-star"><img src="/figma/glass-star.svg" alt=""></span></div>
@@ -185,9 +299,11 @@ watch(route,()=>{error.value='';showPassword.value=false})
     <label for="profile-household">가구원 수 <span>(선택 · 본인 포함 1~30명)</span></label><input id="profile-household" v-model="householdInput" type="text" inputmode="numeric" maxlength="2" placeholder="미입력 시 보내지 않음" :disabled="searchBusy">
     <p v-if="profileError" class="error" role="alert">{{profileError}}</p><button class="pill" :disabled="searchBusy">{{searchBusy?'검색 요청 중…':'입력하고 검색하기'}}</button>
    </form>
-   <section v-if="searchBusy||searchError||result" class="ai-messages" aria-live="polite"><p v-if="searchBusy" role="status">입력하신 조건으로 정책을 찾고 있어요…</p><p v-if="searchError" class="error" role="alert">{{searchError}} <button type="button" class="text-button" @click="search">다시 시도</button></p><article v-if="result?.answer"><p class="answer-text">{{result.answer}}</p><ul v-if="result.sources?.length" class="sources"><li v-for="(s,i) in result.sources" :key="i"><a v-if="sourceUrl(s)" :href="sourceUrl(s)" target="_blank" rel="noopener noreferrer">{{sourceText(s)}}</a><span v-else>{{sourceText(s)}}</span></li></ul></article><article v-for="(policy,i) in policies" :key="policy.policy_id||i"><h2>{{policy.name}}</h2><p>{{policy.recommendation_reason}}</p><p>{{policy.benefit}}</p></article><p v-if="result&&!needsProfile&&!result.answer&&!policies.length">검색 응답을 받았어요. 표시할 정책이 없거나 응답 형식 확인이 필요해요.</p></section>
-   <section v-if="messages.length" class="ai-messages" aria-label="AI 대화 내역" aria-live="polite"><article v-for="(m,i) in messages" :key="i"><p class="user-question">{{m.question}}</p><p class="answer-text">{{m.answer}}</p><ul v-if="m.sources?.length" class="sources"><li v-for="(s,j) in m.sources" :key="j"><a v-if="sourceUrl(s)" :href="sourceUrl(s)" target="_blank" rel="noopener noreferrer">{{sourceText(s)}}</a><span v-else>{{sourceText(s)}}</span></li></ul></article></section>
-   <form class="ai-composer" @submit.prevent="sendQuestion()"><label for="ai-question" class="sr-only">정책 질문</label><textarea id="ai-question" v-model="question" @keydown="onChatKeydown" placeholder="질문하거나 말하거나 파일을 보내세요." maxlength="1000" rows="2" :disabled="chatBusy"></textarea><div class="ai-composer-footer"><ChatAttachments class="ai-attachments" /><div class="ai-composer-actions"><button type="button" class="ai-mic" aria-label="음성 입력 안내" @click="voiceNotice='음성 대화는 백엔드의 STT·음성 API 연결 후 이용할 수 있어요.'"><img src="/figma/f1e12.svg" alt=""></button><button v-if="question.trim()" class="ai-send" type="submit" :disabled="chatBusy" :aria-label="chatBusy?'답변 작성 중':'질문 보내기'"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3.5 3.5L21 12L3.5 20.5L6.5 13L15 12L6.5 11L3.5 3.5Z" fill="currentColor"/></svg></button><button class="ai-talk" type="button" @click="voiceNotice='음성 대화는 백엔드의 STT·음성 API 연결 후 이용할 수 있어요.'">Youth Compass Ai와 말하기 <img src="/figma/220e0.svg" alt=""></button></div></div><p v-if="voiceNotice" class="ai-notice" role="status">{{voiceNotice}}</p><p v-if="chatError" class="error" role="alert">{{chatError}}</p></form>
+   <section v-if="searchBusy||searchError||result" id="personal-recommendation" class="ai-messages personal-recommendation" aria-live="polite"><AiResponse :loading="searchBusy" :text="result?.answer||''"><p v-if="searchError" class="error" role="alert">{{searchError}} <button type="button" class="text-button" @click="search">다시 시도</button></p><article v-if="result?.answer"><p class="answer-text">{{result.answer}}</p><ul v-if="result.sources?.length" class="sources"><li v-for="(s,i) in result.sources" :key="i"><a v-if="sourceUrl(s)" :href="sourceUrl(s)" target="_blank" rel="noopener noreferrer">{{sourceText(s)}}</a><span v-else>{{sourceText(s)}}</span></li></ul></article><article v-for="(policy,i) in policies" :key="policy.policy_id||i"><h2>{{policy.name}}</h2><p>{{policy.recommendation_reason}}</p><p>{{policy.benefit}}</p></article><p v-if="result&&!needsProfile&&!result.answer&&!policies.length">검색 응답을 받았어요. 표시할 정책이 없거나 응답 형식 확인이 필요해요.</p></AiResponse></section>
+   <section v-if="messages.length||chatBusy" class="ai-messages" aria-label="AI 대화 내역" aria-live="polite"><article v-for="(m,i) in messages" :key="i"><p class="user-question">{{m.question}}</p><AiResponse :text="m.answer"><p class="answer-text">{{m.answer}}</p><ul v-if="m.sources?.length" class="sources"><li v-for="(s,j) in m.sources" :key="j"><a v-if="sourceUrl(s)" :href="sourceUrl(s)" target="_blank" rel="noopener noreferrer">{{sourceText(s)}}</a><span v-else>{{sourceText(s)}}</span></li></ul></AiResponse></article><AiResponse v-if="chatBusy" loading /></section>
+   <nav v-if="!restoringChat&&!chatBusy&&!searchBusy&&(result||messages.length)" class="followup-questions" aria-label="맞춤 후속 질문"><button v-for="q in followupQuestions" :key="q" type="button" @click="sendQuestion(q)">{{q}}</button></nav>
+   <button v-if="result && !restoringChat" class="recommend-jump" type="button" @click="jumpToRecommendation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z"/></svg>내 맞춤 추천 보기 <span aria-hidden="true">↑</span></button>
+   <form v-composer-size class="ai-composer" @submit.prevent="sendQuestion()"><label for="ai-question" class="sr-only">정책 질문</label><textarea id="ai-question" v-model="question" @keydown="onChatKeydown" placeholder="질문하거나 말하거나 파일을 보내세요." maxlength="1000" rows="2" :disabled="chatBusy"></textarea><div class="ai-composer-footer"><ChatAttachments class="ai-attachments" /><div class="ai-composer-actions"><button type="button" class="ai-mic" aria-label="음성 입력 안내" @click="voiceNotice='음성 대화는 백엔드의 STT·음성 API 연결 후 이용할 수 있어요.'"><img src="/figma/f1e12.svg" alt=""></button><button v-if="question.trim()" class="ai-send" type="submit" :disabled="chatBusy" :aria-label="chatBusy?'답변 작성 중':'질문 보내기'"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3.5 3.5L21 12L3.5 20.5L6.5 13L15 12L6.5 11L3.5 3.5Z" fill="currentColor"/></svg></button><button class="ai-talk" type="button" @click="voiceNotice='음성 대화는 백엔드의 STT·음성 API 연결 후 이용할 수 있어요.'">Youth Compass Ai와 말하기 <img src="/figma/220e0.svg" alt=""></button></div></div><p v-if="voiceNotice" class="ai-notice" role="status">{{voiceNotice}}</p><p v-if="chatError" class="error" role="alert">{{chatError}}</p></form>
   </main>
   <main v-else-if="route==='/search'" id="main" class="results-page">
    <template v-if="route==='/search'">
@@ -279,7 +395,26 @@ watch(route,()=>{error.value='';showPassword.value=false})
 .orb-star { position:absolute; width:86.5461px; height:82.3103px; left:48.23px; top:47px; }
 .orb-star::before { content:''; position:absolute; inset:0; background:#ffffff0a; backdrop-filter:blur(3px) saturate(1.25); -webkit-backdrop-filter:blur(3px) saturate(1.25); clip-path:polygon(50% 0%,61.8% 38.2%,100% 38.2%,69.1% 61.8%,80.9% 100%,50% 76.4%,19.1% 100%,30.9% 61.8%,0% 38.2%,38.2% 38.2%); }
 .orb-star img { inset:0; width:86.5461px; height:82.3103px; }
-.ai-composer { position:relative; margin-top:auto; width:min(893px,100%); padding:24px 22px 20px; background:#8739ee33; border-radius:25px; }
+.ai-conversation[data-node-id] { padding-bottom:calc(var(--composer-height,220px) + 64px + env(safe-area-inset-bottom)); }
+.ai-conversation::after { content:''; position:fixed; z-index:9; left:0; right:0; bottom:0; height:calc(21px + env(safe-area-inset-bottom)); background:#faf7ff; pointer-events:none; }
+.chat-toolbar { position:fixed; top:0; left:50%; right:auto; transform:translateX(-50%); width:min(893px,calc(100% - 32px)); box-sizing:border-box; padding:14px 0 28px; display:flex; justify-content:space-between; align-items:center; z-index:12; pointer-events:none; }
+.chat-toolbar::before { content:''; position:absolute; z-index:-1; top:0; bottom:-10px; left:calc((min(893px,100vw - 32px) - 100vw)/2); width:100vw; background:linear-gradient(to bottom,#fff 0%,#fffffff5 45%,#ffffffa8 72%,#ffffff00 100%); pointer-events:none; }
+.chat-toolbar button { pointer-events:auto; }
+.chat-restore { position:fixed; inset:0; z-index:11; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; background:#faf7ff; color:#654582; }
+.chat-restore svg { position:static; width:58px; height:58px; }
+.chat-restore p,.history-notice { font-size:14px; color:#654582; }
+.restore-needle { transform-origin:30px 30px; animation:restore-turn .85s cubic-bezier(.45,0,.25,1) infinite; }
+@keyframes restore-turn { to { transform:rotate(360deg); } }
+@media(prefers-reduced-motion:reduce) { .restore-needle { animation:none; } }
+.app-header:has(.ai-header-nav) { position:sticky; top:0; z-index:14; }
+.chat-toolbar { top:73px; }
+@media(max-width:600px) { .chat-toolbar { top:62px; } }
+.chat-toolbar button { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:40px; padding:10px 16px; border:1px solid #ffffffa6; border-radius:24px; background:#ece8f0c9; color:#342c3c; font-size:14px; line-height:1; backdrop-filter:blur(12px); }
+.chat-toolbar button:hover:not(:disabled) { background:#e2d6f3; }
+.chat-toolbar button:focus-visible { outline:2px solid var(--purple); outline-offset:3px; }
+.chat-toolbar button:disabled { opacity:.45; cursor:wait; }
+.chat-toolbar svg { position:static; width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; }
+.ai-composer { position:fixed; z-index:10; left:50%; bottom:calc(20px + env(safe-area-inset-bottom)); transform:translateX(-50%); box-sizing:border-box; margin:0; width:min(893px,calc(100% - 32px)); max-height:50dvh; overflow-y:auto; padding:24px 22px 20px; background:#e9dafb; border-radius:25px; box-shadow:0 8px 30px #44236b12; }
 .ai-composer textarea { width:100%; resize:vertical; min-height:40px; border:0; background:none; color:#3d207d; font-size:24px; line-height:1.5; padding:0 8px; }
 .ai-composer textarea::placeholder { color:#3d207d; opacity:1; }
 .ai-composer-actions { display:flex; align-items:center; justify-content:flex-end; gap:8px; }
@@ -294,6 +429,22 @@ watch(route,()=>{error.value='';showPassword.value=false})
 .ai-send svg { position:static; display:block; width:24px; height:24px; margin:0; }
 .ai-send:hover:not(:disabled) { background:#7425dc; }
 .ai-messages { width:min(893px,100%); margin-bottom:32px; }
+.user-question { width:fit-content; max-width:85%; box-sizing:border-box; margin:0 0 24px auto; padding:12px 18px; border-radius:16px; text-align:left; white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.6; }
+.ai-messages:last-of-type { min-height:max(180px,calc(100svh - var(--composer-height,220px) - 180px)); }
+.ai-messages[aria-label="AI 대화 내역"] > article:last-of-type,
+.ai-messages[aria-label="AI 대화 내역"] > .ai-response:last-child { min-height:max(180px,calc(100svh - var(--composer-height,220px) - 160px)); }
+.ai-messages { overflow-anchor:none; }
+.followup-questions { display:flex; flex-direction:column; align-items:flex-end; gap:10px; width:min(893px,100%); margin:0 0 24px; }
+.followup-questions button { max-width:90%; padding:11px 16px; border:1px solid #c7b5dc; border-radius:14px; background:#f3edf8; color:#593c74; font-size:14px; line-height:1.5; text-align:left; overflow-wrap:anywhere; transition:background 160ms ease,border-color 160ms ease; }
+.followup-questions button:hover { background:#e9dafa; border-color:#a878db; }
+.followup-questions button:focus-visible { outline:2px solid var(--purple); outline-offset:3px; }
+.personal-recommendation { box-sizing:border-box; padding:28px; border-radius:22px; background:linear-gradient(135deg,#eee0fc 0%,#f6edff 48%,#fcf9ff 100%); }
+.personal-recommendation :deep(article) { background:transparent; }
+.recommend-jump { position:fixed; z-index:11; right:max(16px,calc((100vw - 893px)/2)); bottom:calc(var(--composer-height,220px) + 32px + env(safe-area-inset-bottom)); display:flex; align-items:center; gap:8px; padding:10px 16px; border:1px solid #b58be955; border-radius:24px; background:#f6eefff2; color:#6526ae; font-size:13px; font-weight:600; box-shadow:0 4px 14px #4c237a12; backdrop-filter:blur(12px); }
+.recommend-jump:hover { background:#e9d7fc; }
+.recommend-jump:focus-visible { outline:2px solid var(--purple); outline-offset:3px; }
+.recommend-jump svg { position:static; width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.5; stroke-linejoin:round; }
+@media(max-width:600px) { .personal-recommendation { padding:18px 14px; border-radius:18px; } }
 .ai-extra-profile { width:min(893px,100%); margin:0 0 32px; padding:28px; border-radius:20px; background:#f4edff; }
 .ai-extra-profile h2 { margin:0 0 12px; font-size:24px; }
 .ai-extra-profile>p { font-size:14px; color:#563875; }
