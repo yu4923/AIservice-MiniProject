@@ -34,8 +34,26 @@ onMounted(async()=>{
  try{const session=await checkAuth();if(epoch!==authEpoch||!session?.ok)return;user.value={id:session.id,nickname:session.id};restoreSurvey(session.id)}
  catch(e){if(epoch===authEpoch&&e.status===401){user.value=null;loginId.value=''}}
  finally{
+  let restoredScrollTop=null
   if(route.value==='/chat')await new Promise(resolve=>setTimeout(resolve,Math.max(0,900-(performance.now()-loadingStarted))))
+  if(route.value==='/chat'){
+   await nextTick()
+   await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))
+   const thread=document.querySelector('.ai-messages[aria-label="AI 대화 내역"]')
+   const response=thread?.querySelector('article:last-of-type .ai-response')||document.querySelector('#personal-recommendation .ai-response')
+   if(response){
+    const bottom=(document.querySelector('.ai-composer')?.getBoundingClientRect().top||window.innerHeight)-28
+    restoredScrollTop=Math.max(0,window.scrollY+response.getBoundingClientRect().bottom-bottom)
+    const reduceMotion=window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    window.scrollTo({top:reduceMotion?restoredScrollTop:Math.max(0,restoredScrollTop-Math.min(420,window.innerHeight*.55)),behavior:'instant'})
+   }
+  }
   restoringChat.value=false
+  if(restoredScrollTop!==null&&!window.matchMedia('(prefers-reduced-motion: reduce)').matches){
+   await nextTick()
+   await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))
+   window.scrollTo({top:restoredScrollTop,behavior:'smooth'})
+  }
  }
 })
 const username=ref(''), password=ref(''), showPassword=ref(false), error=ref(''), success=ref(''), busy=ref(false)
@@ -415,24 +433,24 @@ watch(route,()=>{error.value='';showPassword.value=false})
 .chat-toolbar button:disabled { opacity:.45; cursor:wait; }
 .chat-toolbar svg { position:static; width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; }
 .ai-composer { position:fixed; z-index:10; left:50%; bottom:calc(20px + env(safe-area-inset-bottom)); transform:translateX(-50%); box-sizing:border-box; margin:0; width:min(893px,calc(100% - 32px)); max-height:50dvh; overflow-y:auto; padding:24px 22px 20px; background:#e9dafb; border-radius:25px; box-shadow:0 8px 30px #44236b12; }
-.ai-composer textarea { width:100%; resize:vertical; min-height:40px; border:0; background:none; color:#3d207d; font-size:24px; line-height:1.5; padding:0 8px; }
+.ai-composer textarea { width:100%; resize:vertical; min-height:36px; border:0; background:none; color:#3d207d; font-size:16px; line-height:1.5; padding:0 4px; }
+.ai-conversation .ai-composer { padding:16px 18px 12px; border-radius:20px; }
 .ai-composer textarea::placeholder { color:#3d207d; opacity:1; }
+.ai-composer textarea:focus,.ai-composer textarea:focus-visible { outline:none; border:0; box-shadow:none; }
 .ai-composer-actions { display:flex; align-items:center; justify-content:flex-end; gap:8px; }
 .ai-composer-footer { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; flex-wrap:wrap; }
 .ai-attachments { flex:1; min-width:80px; }
 .ai-composer-actions { margin-left:auto; flex-wrap:wrap; }
 .ai-mic { display:grid; place-items:center; padding:0; background:none; width:38px; height:38px; flex-shrink:0; line-height:0; }
 .ai-mic img { position:static; display:block; width:34px; height:34px; object-fit:contain; }
-.ai-talk { display:flex; align-items:center; justify-content:center; gap:8px; border-radius:29px; background:var(--purple); color:white; padding:0 18px; font-size:16px; height:38px; min-height:38px; line-height:1; }
+.ai-talk { display:flex; align-items:center; justify-content:center; gap:8px; border-radius:29px; background:var(--purple); color:white; padding:0 14px; font-size:13px; height:38px; min-height:38px; line-height:1; }
 .ai-talk img { position:static; display:block; width:18px; height:18px; object-fit:contain; flex-shrink:0; }
 .ai-send { display:grid; place-items:center; width:56px; height:38px; border-radius:24px; background:var(--purple); color:white; padding:0; line-height:0; flex-shrink:0; order:1; }
 .ai-send svg { position:static; display:block; width:24px; height:24px; margin:0; }
 .ai-send:hover:not(:disabled) { background:#7425dc; }
 .ai-messages { width:min(893px,100%); margin-bottom:32px; }
 .user-question { width:fit-content; max-width:85%; box-sizing:border-box; margin:0 0 24px auto; padding:12px 18px; border-radius:16px; text-align:left; white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.6; }
-.ai-messages:last-of-type { min-height:max(180px,calc(100svh - var(--composer-height,220px) - 180px)); }
-.ai-messages[aria-label="AI 대화 내역"] > article:last-of-type,
-.ai-messages[aria-label="AI 대화 내역"] > .ai-response:last-child { min-height:max(180px,calc(100svh - var(--composer-height,220px) - 160px)); }
+.ai-messages > .ai-response[aria-busy="true"] { min-height:120px; }
 .ai-messages { overflow-anchor:none; }
 .followup-questions { display:flex; flex-direction:column; align-items:flex-end; gap:10px; width:min(893px,100%); margin:0 0 24px; }
 .followup-questions button { max-width:90%; padding:11px 16px; border:1px solid #c7b5dc; border-radius:14px; background:#f3edf8; color:#593c74; font-size:14px; line-height:1.5; text-align:left; overflow-wrap:anywhere; transition:background 160ms ease,border-color 160ms ease; }
