@@ -399,9 +399,48 @@ class PolicyNodes:
         elif not state["scope"].in_scope:
             status, answer = "out_of_scope", "중앙정부·지자체 청년정책과 자격·지원·모집 공고를 안내합니다."
         else:
-            status, answer = "insufficient", "현재 자료로는 정확한 정책 안내에 필요한 근거를 확보하지 못했습니다."
+            status = "insufficient"
+            request = state["request"]
+            question = request.question
+            if request.is_chat and any(word in question for word in ("서류", "절차", "신청 방법", "신청방법")):
+                answer = (
+                    "신청을 준비하실 수 있도록 서류와 절차를 확인했지만, 이번에 조회한 자료에서는 "
+                    "해당 정책의 제출 서류와 신청 순서를 확인하지 못했습니다.\n\n"
+                    "모집 공고의 ‘신청 방법’, ‘제출 서류’, ‘접수처’ 항목을 함께 확인하는 것이 다음 단계입니다. "
+                    "이 항목들은 확인할 위치를 안내하는 것이며, 해당 정책에서 요구하는 서류나 절차가 확인됐다는 뜻은 아닙니다."
+                )
+            elif request.is_chat and any(word in question for word in ("조건", "자격", "대상")):
+                answer = (
+                    "신청 대상인지 판단하는 데 필요한 자격 조건을 이번 조회에서는 확인하지 못했습니다. "
+                    "자료를 찾지 못한 것이 곧 지원 대상이 아니라는 의미는 아닙니다.\n\n"
+                    "공식 공고에서 연령 기준일, 거주 요건, 취업·학력 조건, 소득 기준과 제외 대상을 "
+                    "확인하면 신청 가능 여부를 판단하는 데 도움이 됩니다. 실제 적용 조건은 정책별로 다릅니다."
+                )
+            elif request.is_chat and any(word in question for word in ("모집", "기간", "언제", "일정", "시행")):
+                answer = (
+                    "이번 조회에서는 해당 정책의 시행·모집 일정을 확인할 근거를 찾지 못했습니다. "
+                    "이를 사업 종료나 접수 마감으로 판단하지는 않습니다.\n\n"
+                    "운영기관의 해당 연도 공고에서 접수 시작일·마감일과 추가 모집 여부를 확인해 주세요. "
+                    "사업 운영 기간과 실제 신청 기간은 구분해서 확인해야 합니다."
+                )
+            elif request.is_chat:
+                answer = (
+                    "질문하신 내용을 확인하기 위해 정책 자료를 찾아봤지만, 이번 검색에서는 "
+                    "답변을 뒷받침할 구체적인 내용을 찾지 못했습니다.\n\n"
+                    "정책명과 운영 지역·연도를 구체적으로 지정하면 동명의 다른 사업과 구분해 검색할 수 있습니다. "
+                    "신청 조건, 지원 내용, 제출 서류, 모집 일정 중 궁금한 항목을 좁혀 질문해 주셔도 좋습니다."
+                )
+            else:
+                interests = ", ".join(INTEREST_LABELS[key] for key in request.profile.interests)
+                answer = (
+                    f"입력하신 {request.profile.region} 거주 조건과 관심 분야({interests})를 바탕으로 "
+                    "정책을 찾아봤지만, 이번 조회에서는 추천할 정책의 구체적인 지원 내용과 조건을 확인하지 못했습니다. "
+                    "이 결과가 이용할 수 있는 정책이 없다는 뜻은 아닙니다.\n\n"
+                    "월세, 면접 준비, 직무교육처럼 가장 필요한 지원을 구체적으로 질문해 주시면 "
+                    "해당 내용을 중심으로 다시 찾아보겠습니다."
+                )
             if state.get("api_status") == "not_configured":
-                answer += " 외부 정책 API는 아직 연결되지 않았습니다."
+                answer += "\n\n현재 외부 정책 정보 조회가 연결되지 않아 검색 범위가 보유 자료로 제한됐습니다."
             elif state.get("api_status") in ("failed", "timeout"):
-                answer += " 외부 정책 API 보완 중 오류 또는 시간 초과가 발생했습니다."
+                answer += "\n\n외부 정책 정보 조회가 원활하지 않아 추가 확인을 마치지 못했습니다. 잠시 후 다시 시도해 주세요."
         return self._step(state, "finish", status=status, answer=answer, cited_ids=[])

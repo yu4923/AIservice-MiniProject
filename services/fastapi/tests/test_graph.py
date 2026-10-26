@@ -55,6 +55,27 @@ def request(**changes):
 
 
 class GraphTests(unittest.IsolatedAsyncioTestCase):
+    async def test_missing_documents_offer_question_specific_next_steps(self):
+        class EmptyAgent:
+            async def lookup(self, *args, **kwargs):
+                return ApiLookupResult(status='no_results')
+        result = await PolicyRagService(Retriever([]), Reasoner(), EmptyAgent()).answer_question(
+            request(prompt='서울 청년수당 제출 서류와 절차는?'))
+        self.assertEqual(result.status, 'insufficient')
+        self.assertIn('제출 서류', result.answer)
+        self.assertIn('접수처', result.answer)
+        self.assertFalse(result.citations)
+        self.assertNotIn('주민등록등본', result.answer)
+
+    async def test_empty_recommendation_explains_search_and_next_question(self):
+        class EmptyAgent:
+            async def lookup(self, *args, **kwargs):
+                return ApiLookupResult(status='no_results')
+        result = await PolicyRagService(Retriever([]), Reasoner(), EmptyAgent()).answer_question(request())
+        self.assertIn('서울', result.answer)
+        self.assertIn('정책이 없다는 뜻은 아닙니다', result.answer)
+        self.assertIn('다시 찾아보겠습니다', result.answer)
+
     def test_prompt_presence_selects_chat_or_recommendation(self):
         from app.input_validation import RECOMMEND_PROMPT
         from pydantic import ValidationError
