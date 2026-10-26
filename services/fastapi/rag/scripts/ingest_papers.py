@@ -1,4 +1,4 @@
-"""PDF/ZIP batch preprocessing. Default input remains services/rag/documents/."""
+"""PDF/ZIP batch preprocessing. Default input is services/fastapi/rag/documents/."""
 import argparse
 import json
 import shutil

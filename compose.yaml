@@ -1,0 +1,139 @@
+# Local integration: Vue + Spring auth + unified FastAPI + MariaDB.
+# Prepare the root .env, ingest documents, then run: docker compose up -d --build
+name: youth-policy-local
+
+x-rag-environment: &rag-environment
+  RAG_EMBEDDING_MODEL: ${RAG_EMBEDDING_MODEL:-nlpai-lab/KURE-v1}
+  RAG_EMBEDDING_DEVICE: cpu
+  RAG_EMBEDDING_BATCH_SIZE: ${RAG_EMBEDDING_BATCH_SIZE:-8}
+  RAG_FAISS_DIR: /workspace/data/faiss-kure-v1
+  RAG_PREPROCESS_DIR: /workspace/data/preprocessed
+  HF_HOME: /cache/huggingface
+
+services:
+  frontend:
+    restart: unless-stopped
+    image: youth-frontend:local
+    build:
+      context: ./frontend
+      args:
+        # Vite embeds public API URLs during the image build.
+        # The browser calls published PC ports, not Compose service names.
+        VITE_DEMO_MODE: "false"
+        VITE_AUTH_API_URL: http://localhost:${AUTH_PORT:-8080}
+        VITE_LOGIN_PATH: /api/auth/login
+        VITE_SIGNUP_PATH: /api/auth/signup
+        VITE_RAG_API_URL: http://localhost:${SEARCH_PORT:-8002}
+        VITE_INTERNAL_RAG_API_URL: http://localhost:${SEARCH_PORT:-8002}
+        VITE_SEARCH_API_URL: http://localhost:${SEARCH_PORT:-8002}
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-5174}:80"
+    depends_on:
+      auth:
+        condition: service_healthy
+      fastapi:
+        condition: service_healthy
+    # /health is checked by the HEALTHCHECK in frontend/Dockerfile.
+
+  db:
+    restart: unless-stopped
+    image: mariadb:11.4.13
+    environment:
+      MARIADB_DATABASE: sql_db
+      MARIADB_USER: ${DB_USER:?Set DB_USER in root .env}
+      MARIADB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in root .env}
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:?Set MARIADB_ROOT_PASSWORD in root .env}
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./services/auth/src/main/resources/db/schema.sql:/docker-entrypoint-initdb.d/001-users.sql:ro
+    # The database is accessible to services on the Compose network only.
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  auth:
+    restart: unless-stopped
+    build:
+      context: ./services/auth
+    environment:
+      DB_URL: jdbc:mariadb://db:3306/sql_db
+      DB_USER: ${DB_USER:?Set DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in root .env}
+      SERVER_ADDRESS: 0.0.0.0
+      SERVER_PORT: 8080
+      JWT_LOG_DIR: /app/jwt_log
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:5174}
+      LOGIN_SUCCESS_URL: ${LOGIN_SUCCESS_URL:-http://localhost:5174}
+      COOKIE_SECURE: "false"
+      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+    volumes:
+      # The image owns this persistent log directory as UID 10001.
+      - auth_jwt_logs:/app/jwt_log
+    ports:
+      - "127.0.0.1:${AUTH_PORT:-8080}:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 60s
+    stop_grace_period: 30s
+
+  fastapi:
+    restart: unless-stopped
+    image: youth-fastapi:local
+    build:
+      context: ./services/fastapi
+    environment:
+      <<: *rag-environment
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in root .env}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:5174}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      YOUTH_POLICY_API_KEY: ${YOUTH_POLICY_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o}
+      # Use the separately prepared PDF index; do not collect/embed on startup.
+      RAG_BUILD_ON_START: "false"
+      RAG_REQUIRED_INDEXES: pdf
+    volumes:
+      - ./data/faiss-kure-v1:/workspace/data/faiss-kure-v1:ro
+      - ./data/hf-cache:/cache/huggingface
+      # Reuse the existing log volume at the new application path.
+      - recommendation_jwt_logs:/workspace/services/fastapi/jwt_log
+    ports:
+      - "127.0.0.1:${SEARCH_PORT:-8002}:8002"
+    healthcheck:
+      # HTTP readiness only; verify real FAISS searches separately after ingestion.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+
+  ingest:
+    image: youth-fastapi:local
+    build:
+      context: ./services/fastapi
+    profiles: ["tools"]
+    environment:
+      <<: *rag-environment
+      NAVER_CLIENT_ID: ${NAVER_CLIENT_ID:-}
+      NAVER_CLIENT_SECRET: ${NAVER_CLIENT_SECRET:-}
+    volumes:
+      - ./data/faiss-kure-v1:/workspace/data/faiss-kure-v1
+      - ./data/preprocessed:/workspace/data/preprocessed
+      - ./data/hf-cache:/cache/huggingface
+      # Use the same PDF directory as the standalone ingestion script.
+      - ./services/fastapi/rag/documents:/input:ro
+    command: ["python", "rag/scripts/ingest_papers.py", "--input", "/input"]
+
+volumes:
+  db_data:
+  auth_jwt_logs:
+  recommendation_jwt_logs:

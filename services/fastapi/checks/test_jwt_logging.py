@@ -38,7 +38,7 @@ class JwtLoggingTests(unittest.TestCase):
             spec.loader.exec_module(self.module)
         app = FastAPI()
 
-        @app.post("/recommend")
+        @app.post("/search")
         async def protected(user=Depends(self.module.get_current_user)):
             """#JWT_code: 업무 처리 없이 실제 JWT 의존성만 실행한다."""
             return {"ok": True}
@@ -75,7 +75,7 @@ class JwtLoggingTests(unittest.TestCase):
             headers = {"X-Request-Id": request_id}
             if token is not None:
                 headers["Cookie"] = "ACCESS_TOKEN=" + token
-            response = self.client.post("/recommend", headers=headers)
+            response = self.client.post("/search", headers=headers)
             self.assertEqual(response.status_code, expected)
             self.assertEqual(response.headers["X-Request-Id"], request_id)
         files, console = self.records()
@@ -85,7 +85,7 @@ class JwtLoggingTests(unittest.TestCase):
     def test_credentials_body_and_query_are_absent(self):
         """#JWT_code: 토큰·서명키·사용자 입력을 로그 검색으로 복원할 수 없어야 한다."""
         token = self.token()
-        self.client.post("/recommend?password=private-query", headers={"Cookie": "ACCESS_TOKEN=" + token},
+        self.client.post("/search?password=private-query", headers={"Cookie": "ACCESS_TOKEN=" + token},
                          json={"question": "private-question", "password": "private-password"})
         files, console = self.records()
         text = json.dumps(files + console)
@@ -96,7 +96,7 @@ class JwtLoggingTests(unittest.TestCase):
         """#JWT_code: 반복 요청마다 핸들러가 늘어 로그가 중복되는 것을 막는다."""
         for _ in range(3):
             self.module._audit_logger()
-            self.client.post("/recommend")
+            self.client.post("/search")
         files, console = self.records()
         self.assertEqual(files, console)
         self.assertEqual(len(files), 4)

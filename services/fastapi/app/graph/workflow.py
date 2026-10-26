@@ -80,6 +80,9 @@ class PolicyRagService(PolicyNodes):
             policies=policies, missing_fields=list(dict.fromkeys(
                 state.get("missing_fields", []) + [field for policy in policies for field in policy.missing_fields])),
             follow_up_question=state.get("follow_up_question", ""),
-            needs_review=state["status"] != "answered" or any(p.status == "needs_review" for p in policies),
+            needs_review=(state["status"] != "answered"
+                          or not state.get("review", None)
+                          or not state["review"].application_status_verified
+                          or any(p.status == "needs_review" for p in policies)),
             handoff=state["status"] == "insufficient", api_status=state["api_status"],
             node_path=state["node_path"], latency_ms=round((time.perf_counter() - started) * 1000))

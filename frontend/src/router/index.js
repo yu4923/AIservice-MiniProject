@@ -6,7 +6,8 @@ const router = createRouter({
   routes: [
     { path: '/', component: () => import('../views/WelcomeView.vue'), meta: { title: 'Youth Compass · 시작하기' } },
     { path: '/home', component: () => import('../views/YouthCompassView.vue'), meta: { title: 'Youth Compass · 청년정책 나침반' } },
-    { path: '/:page(categories|login|signup|recommendations|chat)', component: () => import('../views/YouthCompassView.vue'), meta: { title: 'Youth Compass · 청년정책 나침반' } },
+    { path: '/:page(categories|login|signup|search|chat)', component: () => import('../views/YouthCompassView.vue'), meta: { title: 'Youth Compass · 청년정책 나침반' } },
+    { path: '/recommendations', redirect: '/search' },
     { path: '/survey/:step', component: () => import('../views/YouthCompassView.vue'), meta: { title: 'Youth Compass · 맞춤 설문' } },
     { path: '/console', alias: '/intro_main.html', component: () => import('../views/HomeView.vue'), meta: { title: 'RAG Pipeline API App' } },
     { path: '/external', alias: '/external_index.html', component: () => import('../views/ExternalRagView.vue'), meta: { title: 'Closed Source LLM Console' } },

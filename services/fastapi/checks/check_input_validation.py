@@ -53,7 +53,7 @@ def run():
     probe = ProcessingProbe()
     application = FastAPI()
 
-    @application.post("/recommend")
+    @application.post("/search")
     def receive(request: RAGRequest):
         """실제 API와 같은 입력 DTO를 FastAPI 수신 경계에 연결한다."""
         return probe.receive(request)
@@ -61,7 +61,7 @@ def run():
     with TestClient(application) as client:
         for case in data["cases"]:
             before = probe.calls
-            response = client.post("/recommend", json=payload_for(data["fixture"], case))
+            response = client.post("/search", json=payload_for(data["fixture"], case))
             assert response.status_code == case["expected_status"], case["id"] + ": status mismatch"
             if response.status_code == 422:
                 assert probe.calls == before, case["id"] + ": invalid request reached processing"

@@ -70,3 +70,6 @@ tests/
 /services/fastapi/jwt_log/
 /services/fastapi/rag/data/
 .pytest_cache/
+
+# Legacy local PDF directory (not used by the current Compose)
+/services/rag/documents/**

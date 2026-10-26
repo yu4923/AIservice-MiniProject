@@ -24,9 +24,15 @@ class ScopeDecision(BaseModel):
 
 class EvidenceDecision(BaseModel):
     sufficient: bool
+    # Policy facts can be answerable even when current recruitment is unverified.
+    application_status_verified: bool = False
     usable_ids: list[str]
     missing_information: list[str]
     reason: str
+
+
+class ApplicationPeriod(BaseModel):
+    display: str = Field(description="근거에 명시된 신청·접수 기간. 사업·지급 기간과 구분한다.")
 
 
 class PolicyMatch(BaseModel):
@@ -35,6 +41,9 @@ class PolicyMatch(BaseModel):
     reason: str
     missing_fields: list[str]
     evidence_ids: list[str]
+    benefit: str | None = Field(default=None, description="근거 문서에서 확인된 지원 내용. 정보가 없으면 null.")
+    application_period: ApplicationPeriod | None = Field(
+        default=None, description="근거에서 확인된 신청·접수 기간. 정보가 없으면 null.")
 
 
 class ComparisonResult(BaseModel):

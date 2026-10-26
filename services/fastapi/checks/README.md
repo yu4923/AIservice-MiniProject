@@ -1,4 +1,4 @@
-# 추천 입력 검증
+# 검색 입력 검증
 
 검사 위치는 `app/input_validation.py`다. `main.py`는 여기의 `RAGRequest`로 요청을 받고, `graph/state.py`는 기존 import 호환을 위해 요청 DTO를 재노출한다. Graph·Agent의 추천 판단 로직은 변경하지 않았다.
 
@@ -19,6 +19,6 @@ python3 services/fastapi/checks/check_input_validation.py
 
 고정 평가셋은 같은 폴더의 request_validation_cases.json이다. 메모리 내 FastAPI와 실제 DTO로 입력 검사를 확인하며, 잘못된 요청에서 처리 함수가 호출되지 않는지도 검사한다. 실제 서버·JWT 의존성·프론트·검색·LLM·DB를 호출하지 않는다. 기존 환경에 fastapi/httpx/pydantic이 필요하며 패키지 설치는 자동 실행하지 않는다.
 
-주의: 기존 Graph는 income/employment_status가 없으면 needs_profile로 분기한다. 프론트의 statuses/details를 실제 추천에 사용하는 변경은 담당자가 별도로 수행해야 한다. 입력 검증 완료와 추천 기능 연동 완료를 구분한다.
+검색 API는 `POST /search`입니다. 소득·고용 형태는 선택 입력이며 미입력 값을 추정하지 않습니다. 필수 설문은 DTO에서 검사하고, 소득 등 미확인 자격 정보는 정책별 확인 필요 항목으로 반환합니다.
 
 되돌릴 때는 이번 입력 검증 변경만 되돌린다. 작업 전부터 존재한 statuses/details 수신 필드 변경은 보존한다. 커밋·푸시·서버 재시작·DB 변경은 별도 요청 없이는 수행하지 않는다.

@@ -22,13 +22,17 @@ class APITests(unittest.TestCase):
             return object()
         app.dependency_overrides[get_current_user] = authenticated
         with TestClient(app) as client:
-            response = client.post('/recommend', json=request().model_dump())
+            response = client.post('/search', json=request().model_dump())
             self.assertEqual(response.status_code, 200, response.text)
             self.assertEqual(response.json()['status'], 'answered')
+            self.assertIsNone(response.json()['policies'][0]['benefit'])
+            self.assertIsNone(response.json()['policies'][0]['application_period'])
+            self.assertEqual(client.post('/recommend', json={}).status_code, 404)
             self.assertEqual(client.post('/rag-query', json={}).status_code, 404)
             self.assertEqual(client.get('/health').status_code, 200)
+            self.assertEqual(client.get('/health').json()['service'], 'search')
             paths = client.get('/openapi.json').json()['paths']
-            self.assertEqual(set(paths), {'/recommend', '/health'})
+            self.assertEqual(set(paths), {'/search', '/health'})
 
     def test_startup_prepares_indexes_once(self):
         service = PolicyRagService(Retriever([DOC]), Reasoner(), Agent())

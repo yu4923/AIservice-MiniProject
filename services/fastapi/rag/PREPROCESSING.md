@@ -3,7 +3,7 @@
 기존 `/upload-paper` 역할은 `scripts/ingest_papers.py`, `/upload-topic` 역할은
 `scripts/ingest_topics.py`가 맡습니다. 업로드 HTTP 엔드포인트를 추가하지 않습니다.
 공통 함수 `ingest_paper()` / `ingest_topic()`의 `(store, result)` 반환 형식은 유지합니다.
-기본 PDF 위치는 종전과 같은 `services/rag/documents/`입니다.
+기본 PDF 위치는 `services/fastapi/rag/documents/`입니다. Compose와 로컬 적재 스크립트가 같은 폴더를 사용합니다.
 
 ## 실행 환경
 

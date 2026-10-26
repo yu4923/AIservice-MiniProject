@@ -1,4 +1,4 @@
-"""추천 요청의 자료형과 설문 선택 규칙을 추천 로직 실행 전에 검사한다."""
+"""검색 요청의 자료형과 설문 선택 규칙을 추천 로직 실행 전에 검사한다."""
 
 from typing import Literal
 
@@ -89,7 +89,7 @@ class UserProfile(BaseModel):
 
 
 class RAGRequest(BaseModel):
-    """질문과 검증된 설문을 추천 API에 전달한다."""
+    """질문과 검증된 설문을 검색 API에 전달한다."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
     question: str = Field(min_length=2, max_length=1000,
