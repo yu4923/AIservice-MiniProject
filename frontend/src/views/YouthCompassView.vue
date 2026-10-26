@@ -2,6 +2,7 @@
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Brand from '../components/Brand.vue'
+import ChatAttachments from '../components/ChatAttachments.vue'
 import { emptyProfile, loadProfile, saveProfile, clearProfile } from '../api/profileSession'
 import { demoMode, login, signup, ask, clearToken, searchPolicies, checkAuth, logoutSession } from '../api/youth'
 
@@ -115,8 +116,19 @@ async function search(){if(searchBusy.value)return;searchError.value='';result.v
 async function sendQuestion(text){if(chatBusy.value)return;const q=(text||question.value).trim();if(!q)return;chatError.value='';if(q.length>1000){chatError.value='질문은 1000자 이하로 입력해 주세요.';return}question.value=q;chatBusy.value=true;try{const r=await ask(q,profile.value);messages.value.push({question:q,...r});question.value=''}catch(e){chatError.value=e.message;if(e.status===401){clearToken();user.value=null}}finally{chatBusy.value=false}}
 const selectedPolicy=ref(null)
 const voiceNotice=ref('')
-const exampleRows=[[0,1,0],[3,2,3,2]]
-const vCenterStrip={mounted(el){const position=()=>{const card=el.querySelector('article');if(card)el.scrollLeft=el.dataset.row==='1'?card.getBoundingClientRect().width*.90:0};requestAnimationFrame(position);const observer=new ResizeObserver(position);observer.observe(el);el._stripResize=observer},unmounted(el){el._stripResize?.disconnect()}}
+function onChatKeydown(event){
+ if(event.key!=='Enter'||event.shiftKey||event.isComposing||event.keyCode===229||event.repeat)return
+ event.preventDefault()
+ if(!chatBusy.value&&question.value.trim())sendQuestion()
+}
+const exampleRows=[[0,1,0,1],[3,2,3,2]]
+const vMovingStrip={mounted(el){
+ let visible=false
+ const update=()=>el.classList.toggle('strip-running',visible&&!document.hidden)
+ const observer=new IntersectionObserver(entries=>{visible=entries[0].isIntersecting;update()})
+ observer.observe(el);document.addEventListener('visibilitychange',update)
+ el._stripCleanup=()=>{observer.disconnect();document.removeEventListener('visibilitychange',update)}
+},unmounted(el){el._stripCleanup?.()}}
 function sourceText(s){return typeof s==='string'?s:(s.title||s.document_id||'참고 자료')+(s.page?` · ${s.page}쪽`:'')}
 function sourceUrl(s){const value=typeof s==='string'?s:s.url;try{const u=new URL(value);return ['https:','http:'].includes(u.protocol)?u.href:null}catch{return null}}
 async function logout(){
@@ -150,7 +162,7 @@ watch(route,()=>{error.value='';showPassword.value=false})
   </section>
  </main>
  <template v-else>
-  <header v-if="surveyPage||route==='/search'||route==='/chat'" class="app-header"><button class="brand-button" @click="go('/home')"><Brand white compact/></button><nav v-if="route==='/chat'" class="ai-header-nav"><button @click="go('/categories')">정책 분야</button><button @click="showHow()">이용 방법</button><button @click="logout">로그아웃</button></nav><button v-else-if="user" class="header-link" @click="logout">로그아웃</button></header>
+  <header v-if="surveyPage||route==='/search'||route==='/chat'" class="app-header"><button class="brand-button" @click="go('/home')"><Brand white compact/></button><nav v-if="route==='/chat'" class="ai-header-nav"><button @click="go('/categories')">정책 분야</button><button @click="go('/chat')">AI 튜터와 대화하기</button><button @click="showHow()">이용 방법</button><button @click="logout">로그아웃</button></nav><button v-else-if="user" class="header-link" @click="logout">로그아웃</button></header>
   <main v-if="surveyPage" id="main" class="survey-page">
    <img class="survey-glow glow-one" src="/figma/f58fd.svg" alt=""><img class="survey-glow glow-two" src="/figma/f58fd.svg" alt="">
    <section class="survey-content"><span class="step-badge">STEP 0{{step}}</span><h1>{{titles[step-1]}} <small>{{step}} / 5</small></h1><p class="survey-description">{{descriptions[step-1]}}</p>
@@ -165,7 +177,7 @@ watch(route,()=>{error.value='';showPassword.value=false})
   <main v-else-if="route==='/chat'" id="main" class="ai-conversation" data-node-id="18:1111">
    <img class="ai-glow ai-glow-right" src="/figma/f58fd.svg" alt=""><img class="ai-glow ai-glow-left" src="/figma/f58fd.svg" alt="">
    <h1>안녕하세요 {{loginId||'청년'}}님, 환영합니다!</h1>
-   <div v-orb-motion class="ai-orb" aria-hidden="true"><img class="orb-glow" src="/figma/94e57.svg" alt=""><div class="orb-texture"></div><img class="orb-ring-inner" src="/figma/ce02e.svg" alt=""><img class="orb-ring-outer" src="/figma/39a8d.svg" alt=""><img class="orb-star" src="/figma/a9cb4.svg" alt=""></div>
+   <div v-orb-motion class="ai-orb" aria-hidden="true"><img class="orb-glow" src="/figma/94e57.svg" alt=""><div class="orb-texture"></div><img class="orb-ring-inner" src="/figma/ce02e.svg" alt=""><img class="orb-ring-outer" src="/figma/39a8d.svg" alt=""><span class="orb-star"><img src="/figma/glass-star.svg" alt=""></span></div>
    <form v-if="needsProfile" class="ai-extra-profile" @submit.prevent="submitExtraProfile">
     <h2>맞춤 검색을 위해 조금만 더 알려주세요</h2><p>소득과 취업 상태가 필요해요. 모르는 정보는 임의로 입력하지 말고 확인 후 작성해 주세요.</p>
     <label for="profile-income">소득 <span>(필수 · 최대 200자)</span></label><input id="profile-income" v-model="profile.income" type="text" maxlength="200" placeholder="예: 월 소득 0원" required :disabled="searchBusy">
@@ -175,7 +187,7 @@ watch(route,()=>{error.value='';showPassword.value=false})
    </form>
    <section v-if="searchBusy||searchError||result" class="ai-messages" aria-live="polite"><p v-if="searchBusy" role="status">입력하신 조건으로 정책을 찾고 있어요…</p><p v-if="searchError" class="error" role="alert">{{searchError}} <button type="button" class="text-button" @click="search">다시 시도</button></p><article v-if="result?.answer"><p class="answer-text">{{result.answer}}</p><ul v-if="result.sources?.length" class="sources"><li v-for="(s,i) in result.sources" :key="i"><a v-if="sourceUrl(s)" :href="sourceUrl(s)" target="_blank" rel="noopener noreferrer">{{sourceText(s)}}</a><span v-else>{{sourceText(s)}}</span></li></ul></article><article v-for="(policy,i) in policies" :key="policy.policy_id||i"><h2>{{policy.name}}</h2><p>{{policy.recommendation_reason}}</p><p>{{policy.benefit}}</p></article><p v-if="result&&!needsProfile&&!result.answer&&!policies.length">검색 응답을 받았어요. 표시할 정책이 없거나 응답 형식 확인이 필요해요.</p></section>
    <section v-if="messages.length" class="ai-messages" aria-label="AI 대화 내역" aria-live="polite"><article v-for="(m,i) in messages" :key="i"><p class="user-question">{{m.question}}</p><p class="answer-text">{{m.answer}}</p><ul v-if="m.sources?.length" class="sources"><li v-for="(s,j) in m.sources" :key="j"><a v-if="sourceUrl(s)" :href="sourceUrl(s)" target="_blank" rel="noopener noreferrer">{{sourceText(s)}}</a><span v-else>{{sourceText(s)}}</span></li></ul></article></section>
-   <form class="ai-composer" @submit.prevent="sendQuestion()"><label for="ai-question" class="sr-only">정책 질문</label><textarea id="ai-question" v-model="question" placeholder="질문하거나 말하거나 파일을 보내세요." maxlength="1000" rows="2" :disabled="chatBusy"></textarea><div class="ai-composer-actions"><button type="button" class="ai-mic" aria-label="음성 입력 안내" @click="voiceNotice='음성 대화는 백엔드의 STT·음성 API 연결 후 이용할 수 있어요.'"><img src="/figma/f1e12.svg" alt=""></button><button v-if="question.trim()" class="ai-talk" type="submit" :disabled="chatBusy">{{chatBusy?'답변 작성 중…':'질문 보내기 →'}}</button><button v-else class="ai-talk" type="button" @click="voiceNotice='음성 대화는 백엔드의 STT·음성 API 연결 후 이용할 수 있어요.'">Youth Compass Ai와 말하기 <img src="/figma/220e0.svg" alt=""></button></div><p v-if="voiceNotice" class="ai-notice" role="status">{{voiceNotice}}</p><p v-if="chatError" class="error" role="alert">{{chatError}}</p></form>
+   <form class="ai-composer" @submit.prevent="sendQuestion()"><label for="ai-question" class="sr-only">정책 질문</label><textarea id="ai-question" v-model="question" @keydown="onChatKeydown" placeholder="질문하거나 말하거나 파일을 보내세요." maxlength="1000" rows="2" :disabled="chatBusy"></textarea><div class="ai-composer-footer"><ChatAttachments class="ai-attachments" /><div class="ai-composer-actions"><button type="button" class="ai-mic" aria-label="음성 입력 안내" @click="voiceNotice='음성 대화는 백엔드의 STT·음성 API 연결 후 이용할 수 있어요.'"><img src="/figma/f1e12.svg" alt=""></button><button v-if="question.trim()" class="ai-send" type="submit" :disabled="chatBusy" :aria-label="chatBusy?'답변 작성 중':'질문 보내기'"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3.5 3.5L21 12L3.5 20.5L6.5 13L15 12L6.5 11L3.5 3.5Z" fill="currentColor"/></svg></button><button class="ai-talk" type="button" @click="voiceNotice='음성 대화는 백엔드의 STT·음성 API 연결 후 이용할 수 있어요.'">Youth Compass Ai와 말하기 <img src="/figma/220e0.svg" alt=""></button></div></div><p v-if="voiceNotice" class="ai-notice" role="status">{{voiceNotice}}</p><p v-if="chatError" class="error" role="alert">{{chatError}}</p></form>
   </main>
   <main v-else-if="route==='/search'" id="main" class="results-page">
    <template v-if="route==='/search'">
@@ -191,7 +203,7 @@ watch(route,()=>{error.value='';showPassword.value=false})
    <p class="disclaimer">검색 결과는 정책 탐색을 돕기 위한 안내예요. 지원 자격과 신청 가능 여부는 공식 공고 및 담당기관에서 최종 확인해 주세요.</p>
   </main>
   <main v-else id="main" class="landing">
-   <section class="hero"><nav class="site-nav"><button class="home-nav-button" @click="go('/home')"><img src="/figma/0170c.svg" alt="" width="15.2" height="14.2">HOME</button><div><button @click="go('/categories')">정책 분야</button><button @click="showHow()">이용 방법</button><button v-if="!user" @click="go('/login')">로그인</button><button v-else @click="start">내 맞춤 정책</button></div></nav><img class="hero-logo" src="/figma/a7989.svg" alt="YOUTH COMPASS"><p>청년들을 위한 맞춤형 정책 검색 서비스</p><button class="hero-start" @click="start">내 맞춤 정책 찾기</button></section>
+   <section class="hero"><nav class="site-nav"><button class="home-nav-button" @click="go('/home')"><img src="/figma/0170c.svg" alt="" width="15.2" height="14.2">HOME</button><div><button @click="go('/categories')">정책 분야</button><button @click="go('/chat')">AI 튜터와 대화하기</button><button @click="showHow()">이용 방법</button><button v-if="!user" @click="go('/login')">로그인</button><button v-else @click="start">내 맞춤 정책</button></div></nav><img class="hero-logo" src="/figma/a7989.svg" alt="YOUTH COMPASS"><p>청년들을 위한 맞춤형 정책 검색 서비스</p><button class="hero-start" @click="start">내 맞춤 정책 찾기</button></section>
    <template v-if="route==='/categories'">
     <section v-reveal class="category-intro"><h1>정책 분야</h1><div class="vertical-dots"><img src="/figma/c667a.svg" alt=""><img src="/figma/30e60.svg" alt=""><img src="/figma/144ad.svg" alt=""></div><h2>지금 나에게 필요한 지원은 무엇인가요?<br>관심 있는 분야부터 살펴보세요.</h2></section>
     <section class="category-list"><article v-reveal v-for="c in categories" :key="c.id" class="category-row"><div><strong class="category-number">{{c.number}}</strong><h2>{{c.title}}</h2><p>{{c.description}}</p></div><img :src="'/figma/'+c.image" :alt="c.title+' 일러스트'"></article><button class="pill" @click="start">나에게 맞는 정책 확인하기 →</button></section>
@@ -199,7 +211,7 @@ watch(route,()=>{error.value='';showPassword.value=false})
    <template v-else>
     <section v-reveal class="landing-section first-section"><h1>나에게 맞는 청년정책, 헤매지 말고 찾아보세요.</h1><div class="vertical-dots"><img src="/figma/c667a.svg" alt=""><img src="/figma/30e60.svg" alt=""><img src="/figma/144ad.svg" alt=""></div><p>취업부터 주거, 교육, 창업까지<br>간단한 질문에 답하고 나와 관련된 지원정책을 확인해 보세요.</p><img class="landing-illustration approval" src="/figma/a897d.png" alt="정책 검색을 나타내는 상자와 엄지손가락"><button class="pill" @click="start">내 맞춤 정책 찾기 →</button><img class="star star-left" src="/figma/41de5.svg" alt=""><img class="star star-right" src="/figma/41de5.svg" alt=""></section>
     <section v-reveal id="how" class="landing-section ai-section"><h2>공고를 읽다가 궁금해졌다면, AI에게 물어보세요!</h2><div class="vertical-dots"><img src="/figma/c667a.svg" alt=""><img src="/figma/30e60.svg" alt=""><img src="/figma/144ad.svg" alt=""></div><p>지원 대상부터 신청 방법, 준비 서류까지.<br>찾은 정책 자료를 바탕으로 답변하고 근거와 출처를 함께 안내해요.</p><img class="landing-illustration robot" src="/figma/52188.png" alt="노트북을 사용하는 AI 로봇"><img class="star star-left" src="/figma/41de5.svg" alt=""></section>
-    <section class="example-section"><span class="sr-only">AI 상담 예시</span><div class="example-strips"><div v-for="(row,rowIndex) in exampleRows" :key="rowIndex" v-center-strip :data-row="rowIndex" class="example-strip" tabindex="0" role="region" :aria-label="`AI 상담 예시 ${rowIndex+1}번째 줄 · 좌우로 스크롤`"><article v-for="(i,cardIndex) in row" :key="cardIndex" :aria-hidden="rowIndex===0?cardIndex===2:cardIndex===0||cardIndex===3"><img :src="'/figma/'+['e22b6.svg','b26c7.svg','7b7da.svg','e395f.svg'][i]" alt=""><div><h3>“{{examples[i][0]}}”</h3><p>{{examples[i][1]}}</p></div></article></div></div><button class="pill" @click="start">AI와 내 맞춤 정책 찾기 →</button><small>위 대화는 서비스 이용을 설명하는 예시입니다.</small></section>
+    <section class="example-section"><span class="sr-only">AI 상담 예시</span><div class="example-strips"><div v-for="(row,rowIndex) in exampleRows" :key="rowIndex" v-moving-strip class="example-strip" tabindex="0" role="region" :aria-label="`AI 상담 예시 ${rowIndex+1}번째 줄 · 왼쪽으로 흐르는 카드`"><div class="example-track"><div v-for="cycle in 2" :key="cycle" class="example-cycle" :aria-hidden="cycle===2"><article v-for="(i,cardIndex) in row" :key="cardIndex" :aria-hidden="cycle===2||cardIndex>=2"><img :src="'/figma/'+['e22b6.svg','b26c7.svg','7b7da.svg','e395f.svg'][i]" alt=""><div><h3>“{{examples[i][0]}}”</h3><p>{{examples[i][1]}}</p></div></article></div></div></div></div><button class="pill" @click="start">AI와 내 맞춤 정책 찾기 →</button><small>위 대화는 서비스 이용을 설명하는 예시입니다.</small></section>
    </template>
    <footer>Youth Compass는 정책 탐색을 돕는 서비스입니다.<br>지원 자격과 신청 가능 여부는 공식 공고 및 담당기관에서 최종 확인해 주세요.</footer>
   </main>
@@ -258,21 +270,29 @@ watch(route,()=>{error.value='';showPassword.value=false})
 .orb-ring-outer { width:184.21px; height:184.21px; inset:0; }
 .orb-ring-inner { animation:orb-breathe-inner 4s ease-in-out infinite; animation-play-state:paused; transform-origin:center; }
 .orb-ring-outer { animation:orb-breathe-outer 4s ease-in-out .35s infinite; animation-play-state:paused; transform-origin:center; }
-.orb-glow { animation:orb-glow-breathe 4s ease-in-out infinite; animation-play-state:paused; }
+.orb-glow { filter:saturate(1.25); animation:orb-glow-breathe 4s ease-in-out infinite; animation-play-state:paused; }
 .orb-running .orb-ring-inner,.orb-running .orb-ring-outer,.orb-running .orb-glow { animation-play-state:running; }
 @keyframes orb-breathe-inner { 0%,100% { transform:scale(1); opacity:1; } 50% { transform:scale(1.045); opacity:.72; } }
 @keyframes orb-breathe-outer { 0%,100% { transform:scale(1); opacity:1; } 50% { transform:scale(1.10); opacity:.52; } }
-@keyframes orb-glow-breathe { 0%,100% { opacity:.65; transform:scale(.98); } 50% { opacity:1; transform:scale(1.06); } }
+@keyframes orb-glow-breathe { 0%,100% { opacity:.85; transform:scale(.98); } 50% { opacity:1; transform:scale(1.06); } }
 @media(prefers-reduced-motion:reduce) { .orb-ring-inner,.orb-ring-outer,.orb-glow { animation:none; } }
-.orb-star { width:86.54px; height:82.31px; left:48.23px; top:47px; }
+.orb-star { position:absolute; width:86.5461px; height:82.3103px; left:48.23px; top:47px; }
+.orb-star::before { content:''; position:absolute; inset:0; background:#ffffff0a; backdrop-filter:blur(3px) saturate(1.25); -webkit-backdrop-filter:blur(3px) saturate(1.25); clip-path:polygon(50% 0%,61.8% 38.2%,100% 38.2%,69.1% 61.8%,80.9% 100%,50% 76.4%,19.1% 100%,30.9% 61.8%,0% 38.2%,38.2% 38.2%); }
+.orb-star img { inset:0; width:86.5461px; height:82.3103px; }
 .ai-composer { position:relative; margin-top:auto; width:min(893px,100%); padding:24px 22px 20px; background:#8739ee33; border-radius:25px; }
 .ai-composer textarea { width:100%; resize:vertical; min-height:40px; border:0; background:none; color:#3d207d; font-size:24px; line-height:1.5; padding:0 8px; }
 .ai-composer textarea::placeholder { color:#3d207d; opacity:1; }
 .ai-composer-actions { display:flex; align-items:center; justify-content:flex-end; gap:8px; }
-.ai-mic { padding:0; background:none; width:34px; height:34px; }
-.ai-mic img { width:34px; height:34px; }
-.ai-talk { display:flex; align-items:center; gap:8px; border-radius:29px; background:var(--purple); color:white; padding:8px 18px; font-size:16px; min-height:35px; }
-.ai-talk img { width:18px; height:18px; }
+.ai-composer-footer { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; flex-wrap:wrap; }
+.ai-attachments { flex:1; min-width:80px; }
+.ai-composer-actions { margin-left:auto; flex-wrap:wrap; }
+.ai-mic { display:grid; place-items:center; padding:0; background:none; width:38px; height:38px; flex-shrink:0; line-height:0; }
+.ai-mic img { position:static; display:block; width:34px; height:34px; object-fit:contain; }
+.ai-talk { display:flex; align-items:center; justify-content:center; gap:8px; border-radius:29px; background:var(--purple); color:white; padding:0 18px; font-size:16px; height:38px; min-height:38px; line-height:1; }
+.ai-talk img { position:static; display:block; width:18px; height:18px; object-fit:contain; flex-shrink:0; }
+.ai-send { display:grid; place-items:center; width:56px; height:38px; border-radius:24px; background:var(--purple); color:white; padding:0; line-height:0; flex-shrink:0; order:1; }
+.ai-send svg { position:static; display:block; width:24px; height:24px; margin:0; }
+.ai-send:hover:not(:disabled) { background:#7425dc; }
 .ai-messages { width:min(893px,100%); margin-bottom:32px; }
 .ai-extra-profile { width:min(893px,100%); margin:0 0 32px; padding:28px; border-radius:20px; background:#f4edff; }
 .ai-extra-profile h2 { margin:0 0 12px; font-size:24px; }
@@ -283,16 +303,26 @@ watch(route,()=>{error.value='';showPassword.value=false})
 .ai-extra-profile>.pill { margin-top:24px; font-size:16px; min-height:48px; }
 .ai-messages article { background:#ffffffb3; border-radius:16px; padding:20px; margin-bottom:16px; }
 .ai-notice { font-size:13px; color:#563089; margin:12px 0 0; }
-.example-strips { display:grid; gap:28px; }
-.example-strip { display:flex; gap:32px; overflow-x:auto; overscroll-behavior-x:contain; scrollbar-width:none; padding-block:4px; }
+.example-strips { display:grid; gap:28px; container-type:inline-size; mask-image:linear-gradient(to right,#0008 0%,#000 4%,#000 96%,#0008 100%); }
+.example-strip { --strip-gap:32px; --strip-card:42cqw; --strip-offset:0px; overflow:hidden; padding-block:4px; }
+.example-strip:nth-child(2) { --strip-offset:calc(var(--strip-card)*.9); }
+.example-track { display:flex; width:max-content; transform:translateX(calc(-1*var(--strip-offset))); animation:example-flow-left 58s linear infinite; animation-play-state:paused; }
+.example-cycle { display:flex; gap:var(--strip-gap); padding-right:var(--strip-gap); }
+.strip-running .example-track { animation-play-state:running; }
+.example-strip:hover .example-track,.example-strip:focus-within .example-track { animation-play-state:paused; }
+@keyframes example-flow-left { from { transform:translateX(calc(-1*var(--strip-offset))); } to { transform:translateX(calc(-50% - var(--strip-offset))); } }
+@media(prefers-reduced-motion:reduce) {
+ .example-strip { overflow-x:auto; }
+ .example-track { animation:none; transform:none; }
+ .example-cycle[aria-hidden="true"] { display:none; }
+}
 .example-strip::-webkit-scrollbar { display:none; }
-.example-strip article { flex:0 0 42%; min-height:180px; display:flex; align-items:center; gap:24px; padding:30px 34px; border-radius:20px; background:var(--purple); color:white; text-align:left; }
+.example-strip article { flex:0 0 var(--strip-card); width:var(--strip-card); min-height:180px; display:flex; align-items:center; gap:24px; padding:30px 34px; border-radius:20px; background:var(--purple); color:white; text-align:left; }
 .example-strip article>img { flex:none; width:44px; height:44px; object-fit:contain; }
 .example-strip article>div { min-width:0; }
 .example-strip h3 { font-size:18px; line-height:1.5; margin:0 0 12px; word-break:keep-all; }
 .example-strip p { font-size:14px; line-height:1.65; margin:0; word-break:keep-all; }
-.example-strip article:first-child { background:linear-gradient(90deg,#b98aef,var(--purple) 65%); }
-.example-strip article:last-child,.example-strip:nth-child(2) article:nth-child(3) { background:linear-gradient(90deg,var(--purple) 75%,#b98aef); }
+.example-cycle article { background:var(--purple); }
 .age-picker-wheel { height:auto; padding-top:24px; overflow:visible; align-items:center; }
 .age-picker-wheel>span { padding-top:0; }
 .age-wheel { --age-row:150px; height:calc(var(--age-row)*3); width:300px; overflow-y:auto; overscroll-behavior:contain; scroll-snap-type:y mandatory; scrollbar-width:none; padding-block:var(--age-row); mask-image:linear-gradient(transparent,#000 24%,#000 76%,transparent); }
@@ -309,7 +339,7 @@ watch(route,()=>{error.value='';showPassword.value=false})
   .ai-orb { margin-bottom:65px; }
   .ai-composer { padding:20px 14px 14px; border-radius:20px; }
   .ai-composer textarea { font-size:16px; }
-  .ai-talk { font-size:12px; padding:8px 12px; }
+  .ai-talk { font-size:12px; padding:0 12px; }
   .ai-nav { right:18px; top:-42px; gap:18px; }
   .ai-nav button { font-size:12px; }
   .ai-header-nav { gap:12px; }
@@ -321,8 +351,9 @@ watch(route,()=>{error.value='';showPassword.value=false})
   .category-row p { font-size:16px; white-space:pre-line; }
   .category-row h2 { margin-top:18px; margin-bottom:26px; }
   .example-grid { grid-template-columns:minmax(0,1fr); padding-inline:20px; }
-  .example-strip { gap:16px; }
-  .example-strip article { flex-basis:84%; min-height:190px; padding:24px; gap:16px; }
+  .example-strip { --strip-gap:16px; --strip-card:84cqw; }
+  .example-track { animation-duration:52s; }
+  .example-strip article { min-height:190px; padding:24px; gap:16px; }
   .example-strip article>img { width:32px; height:32px; }
   .example-strip h3 { font-size:15px; }
   .example-strip p { font-size:13px; }
