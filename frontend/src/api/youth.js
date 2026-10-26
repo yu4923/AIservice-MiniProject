@@ -117,13 +117,22 @@ export async function searchPolicies(profile) {
   const data = await request(searchBase, '/search', { profile: payload }, 'POST', 150000)
   return adaptSearchResponse(data)
 }
-export async function ask(question, profile, policyContext = []) {
+export function buildConversationContext(messages = [], recommendation = null) {
+  const completed = messages.filter(m => !m.pending && !m.error && typeof m.question === 'string' && typeof m.answer === 'string' && m.question.trim() && m.answer.trim())
+  const turns = recommendation?.answer ? [recommendation, ...completed] : completed
+  return turns.slice(-4).map(turn => ({
+    question: String(turn.question || turn.prompt || '설문 기반 정책 추천').slice(0, 1000),
+    answer: turn.answer.slice(0, 4000),
+  }))
+}
+
+export async function ask(question, profile, policyContext = [], history = []) {
   if(typeof question!=='string')throw new Error('질문을 입력해 주세요.')
   const value=question.trim()
   if(value.length<2||value.length>1000)throw new Error('질문은 앞뒤 공백을 제외하고 2~1,000자로 입력해 주세요.')
   if (!profile || !profile.region || !profile.statuses?.length || !profile.interests?.length) throw new Error('맞춤 답변을 위해 먼저 설문을 완료해 주세요.')
   const payload = buildSearchProfile(profile)
   const policy_context = [...new Set(policyContext.filter(name => typeof name === 'string' && name.trim() && name.length <= 200).map(name => name.trim()))].slice(0, 5)
-  const data = await request(searchBase, '/search', { prompt: value, profile: payload, policy_context }, 'POST', 150000)
+  const data = await request(searchBase, '/search', { prompt: value, profile: payload, policy_context, history: buildConversationContext(history) }, 'POST', 150000)
   return adaptSearchResponse(data)
 }

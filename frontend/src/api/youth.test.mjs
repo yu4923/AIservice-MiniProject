@@ -139,7 +139,7 @@ test('chat sends trimmed question and actual survey profile with cookies', async
     assert.equal(url,'http://localhost:8002/search')
     assert.equal(options.method,'POST')
     assert.equal(options.credentials,'include')
-    assert.deepEqual(JSON.parse(options.body),{prompt:'면접 지원 조건이 궁금해요',profile:api.buildSearchProfile(profile()),policy_context:['서울 청년수당']})
+    assert.deepEqual(JSON.parse(options.body),{prompt:'면접 지원 조건이 궁금해요',profile:api.buildSearchProfile(profile()),policy_context:['서울 청년수당'],history:[]})
     assert.deepEqual(options.headers,{'Content-Type':'application/json'})
     return {ok:true,json:async()=>({answer:'서버 응답'})}
   }
@@ -205,4 +205,26 @@ test('server failures, timeouts and invalid responses show a retry message', asy
 
  test('accepts both survey age boundaries', () => {
   for (const age of [12, 49]) assert.equal(api.buildSearchProfile({ ...profile(), age }).age, age)
+})
+
+
+test('conversation context retains completed turns and clears with conversation', () => {
+ const turns = [
+  {question:'기존 질문',answer:'기존 답변'},
+  {question:'대기',answer:'',pending:true},
+  {question:'실패',answer:'',error:'오류'},
+ ]
+ assert.deepEqual(api.buildConversationContext(turns), [{question:'기존 질문',answer:'기존 답변'}])
+ assert.deepEqual(api.buildConversationContext([],null), [])
+ const history = api.buildConversationContext(Array.from({length:6},(_,i)=>({question:String(i),answer:'답변'})))
+ assert.equal(history.length,4)
+ assert.equal(history[0].question,'2')
+})
+
+test('chat transmits the current conversation context', async () => {
+ globalThis.fetch=async(url,options)=>{
+  assert.deepEqual(JSON.parse(options.body).history,[{question:'정책 조건은?',answer:'앞서 확인한 조건'}])
+  return {ok:true,json:async()=>({answer:'후속 답변'})}
+ }
+ await api.ask('그 조건을 설명해줘',profile(),[],[{question:'정책 조건은?',answer:'앞서 확인한 조건'}])
 })

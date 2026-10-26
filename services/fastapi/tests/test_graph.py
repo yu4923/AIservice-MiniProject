@@ -15,6 +15,7 @@ from app.graph.nodes import LLMReasoner
 from app.tools.local_rag import LocalRAGRetriever
 from unittest.mock import Mock, patch
 from app.tools.youth_policy_api import ApiLookupResult
+from app.graph.state import QuestionInterpretation
 
 DOC = Document(page_content='청년 월세 지원의 대상과 신청 방법',
                metadata={'source':'https://www.youthcenter.go.kr/', 'title':'테스트 정책'})
@@ -34,6 +35,13 @@ class Agent:
 
 
 class Reasoner:
+    async def interpret(self, payload):
+        scope = await self.scope(payload['question'])
+        history = ' '.join(turn['question'] for turn in payload.get('history', []))
+        return QuestionInterpretation(in_scope=scope.in_scope, intent='other',
+            uses_previous_context=bool(history), target_policies=payload.get('policy_context', []),
+            search_query=payload['question']+' '+history+' '+' '.join(payload.get('policy_context', [])), api_keywords=[],
+            needs_clarification=False, clarification_question='', reason=scope.reason)
     async def scope(self, question): return ScopeDecision(in_scope=True, reason='청년정책')
     async def review(self, payload):
         return EvidenceDecision(sufficient=True,
@@ -55,6 +63,77 @@ def request(**changes):
 
 
 class GraphTests(unittest.IsolatedAsyncioTestCase):
+    async def test_new_question_uses_interpreted_query_and_api_keywords(self):
+        class InterpretingReasoner(Reasoner):
+            async def interpret(self, payload):
+                self.payload = payload
+                return QuestionInterpretation(in_scope=True, intent='recommendation',
+                    uses_previous_context=False, target_policies=[],
+                    search_query='울산 예비창업자 창업 지원사업', api_keywords=['창업', '사업화'],
+                    needs_clarification=False, clarification_question='', reason='새 질문')
+        class RecordingRetriever(Retriever):
+            async def search(self, query, *args):
+                self.query = query
+                return self.documents
+        class RecordingAgent(Agent):
+            async def lookup(self, query, missing_information, **kwargs):
+                self.query, self.kwargs = query, kwargs
+                return await super().lookup(query, missing_information, **kwargs)
+        reasoner, retriever, agent = InterpretingReasoner(), RecordingRetriever([DOC]), RecordingAgent()
+        result = await PolicyRagService(retriever, reasoner, agent).answer_question(request(
+            prompt='울산 예비창업자가 받을 지원은?', policy_context=['주거비 지원'],
+            history=[{'question':'월세 지원은?', 'answer':'과거 주거 답변'}]))
+        self.assertEqual(retriever.query, '울산 예비창업자 창업 지원사업')
+        self.assertEqual(agent.query, '창업,사업화')
+        self.assertEqual(agent.kwargs['fallback_keywords'], ['창업', '사업화'])
+        self.assertEqual(reasoner.payload['history'][0]['answer'], '과거 주거 답변')
+        self.assertIn('interpret_question', result.node_path)
+
+    async def test_ambiguous_policy_returns_clarification_without_retrieval(self):
+        class AmbiguousReasoner(Reasoner):
+            async def interpret(self, payload):
+                return QuestionInterpretation(in_scope=True, intent='application_documents',
+                    uses_previous_context=True, target_policies=[], search_query='정책 제출 서류',
+                    api_keywords=[], needs_clarification=True,
+                    clarification_question='청년수당과 인턴 중 어느 정책의 서류를 확인할까요?', reason='대상 불명확')
+        retriever, agent = Retriever([DOC]), Agent()
+        result = await PolicyRagService(retriever, AmbiguousReasoner(), agent).answer_question(
+            request(prompt='그 정책의 서류는?'))
+        self.assertEqual(result.status, 'needs_clarification')
+        self.assertIn('어느 정책', result.answer)
+        self.assertEqual(retriever.calls, 0)
+        self.assertEqual(agent.calls, 0)
+        self.assertEqual(result.citations, [])
+        self.assertNotIn('generate', result.node_path)
+
+    async def test_interpret_prompt_prioritizes_current_question(self):
+        captured = {}
+        class RecordingReasoner(LLMReasoner):
+            async def _ask(self, schema, instruction, payload):
+                captured.update(schema=schema, instruction=instruction)
+                return None
+        await RecordingReasoner().interpret({'question':'창업 지원'})
+        self.assertIs(captured['schema'], QuestionInterpretation)
+        self.assertIn('현재 질문을 최우선', captured['instruction'])
+        self.assertIn('대상을 하나로 특정할 수 없으면', captured['instruction'])
+
+    async def test_history_reaches_search_and_reasoner_but_is_not_evidence(self):
+        from app.graph.nodes import payload_for
+        class RecordingRetriever(Retriever):
+            async def search(self, query, *args):
+                self.query = query
+                return self.documents
+        req = request(prompt='그 정책의 조건은?', history=[
+            {'question': '서울 청년수당을 알려줘', 'answer': '이전 답변'}])
+        retriever = RecordingRetriever([DOC])
+        await PolicyRagService(retriever, Reasoner(), Agent()).answer_question(req)
+        self.assertIn('서울 청년수당', retriever.query)
+        payload = payload_for({'request': req, 'reference_date': '2026-10-26'}, [])
+        self.assertEqual(payload['history'][0]['answer'], '이전 답변')
+        self.assertEqual(payload['documents'], [])
+        clean = request(prompt='새 질문')
+        self.assertEqual(payload_for({'request': clean, 'reference_date': '2026-10-26'}, [])['history'], [])
+
     async def test_missing_documents_offer_question_specific_next_steps(self):
         class EmptyAgent:
             async def lookup(self, *args, **kwargs):

@@ -18,7 +18,7 @@ const router = createRouter({
     if (to.hash) {
       await nextTick()
       await Promise.all([...document.images].map(image => image.decode().catch(() => {})))
-      return { el: to.hash, behavior: to.path === from.path && !matchMedia('(prefers-reduced-motion: reduce)').matches ? 'smooth' : 'instant' }
+      return { el: to.hash, top: (document.querySelector('.site-nav')?.getBoundingClientRect().height || 64) + 16, behavior: (to.path === from.path || ['#policy-categories', '#how'].includes(to.hash)) && !matchMedia('(prefers-reduced-motion: reduce)').matches ? 'smooth' : 'instant' }
     }
     return { top: 0, behavior: 'instant' }
   },

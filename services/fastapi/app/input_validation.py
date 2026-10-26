@@ -90,6 +90,12 @@ class UserProfile(BaseModel):
         return "UserProfile[redacted]"
 
 
+class ConversationTurn(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    question: str = Field(min_length=1, max_length=1000)
+    answer: str = Field(min_length=1, max_length=4000)
+
+
 class RAGRequest(BaseModel):
     """질문과 검증된 설문을 검색 API에 전달한다."""
 
@@ -108,6 +114,7 @@ class RAGRequest(BaseModel):
         return self.prompt is not None
 
     policy_context: list[str] = Field(default_factory=list, max_length=5)
+    history: list[ConversationTurn] = Field(default_factory=list, max_length=4)
 
     @field_validator("policy_context")
     @classmethod

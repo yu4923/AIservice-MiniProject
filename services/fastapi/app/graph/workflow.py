@@ -63,12 +63,15 @@ class PolicyRagService(PolicyNodes):
     # 보완 Agent는 한 번만 진입하므로 자료가 없어도 무한 검색하지 않습니다.
     def _build_graph(self):
         graph = StateGraph(PolicyState)
-        for name in ("collect_profile", "build_search", "retrieve", "assess_information",
+        for name in ("collect_profile", "interpret_question", "build_search", "retrieve", "assess_information",
                      "supplement", "compare_conditions", "generate", "finish"):
             graph.add_node(name, getattr(self, name))
         graph.add_edge(START, "collect_profile")
         graph.add_conditional_edges("collect_profile",
-            lambda s: "finish" if s["missing_fields"] else "build_search",
+            lambda s: "finish" if s["missing_fields"] else "interpret_question",
+            {"finish": "finish", "interpret_question": "interpret_question"})
+        graph.add_conditional_edges("interpret_question",
+            lambda s: "finish" if (not s["interpretation"].in_scope or s["interpretation"].needs_clarification) else "build_search",
             {"finish": "finish", "build_search": "build_search"})
         graph.add_conditional_edges("build_search",
             lambda s: "retrieve" if s["scope"].in_scope else "finish",

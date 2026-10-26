@@ -17,11 +17,25 @@ const vComposerSize = {
  unmounted(el) { el._composerObserver?.disconnect() }
 }
 import { emptyProfile, loadProfile, saveProfile, clearProfile } from '../api/profileSession'
-import { demoMode, login, signup, ask, clearToken, searchPolicies, checkAuth, logoutSession } from '../api/youth'
+import { demoMode, login, signup, ask, clearToken, searchPolicies, checkAuth, logoutSession, buildConversationContext } from '../api/youth'
 
 const currentRoute = useRoute()
 const router = useRouter()
 const route = computed(() => currentRoute.path)
+const navOverPurple=ref(true)
+function updateNavContrast(){
+ const nav=document.querySelector('.site-nav')
+ if(!nav)return
+ const navRect=nav.getBoundingClientRect()
+ const middle=navRect.top+navRect.height/2
+ navOverPurple.value=[...document.querySelectorAll('.hero,.example-strip')].some(section=>{
+  const rect=section.getBoundingClientRect()
+  return rect.top<=middle&&rect.bottom>=middle
+ })
+}
+onMounted(()=>{updateNavContrast();window.addEventListener('scroll',updateNavContrast,{passive:true});window.addEventListener('resize',updateNavContrast)})
+onBeforeUnmount(()=>{window.removeEventListener('scroll',updateNavContrast);window.removeEventListener('resize',updateNavContrast)})
+watch(route,async()=>{await nextTick();updateNavContrast()})
 const go = (path) => router.push(path)
 const user = ref(null)
 const loginId=ref('')
@@ -29,6 +43,7 @@ const logoutError=ref('')
 const restoringChat=ref(true)
 const historyNotice=ref('')
 let authEpoch=0
+let conversationEpoch=0
 onMounted(async()=>{
  const epoch=authEpoch
  const loadingStarted=performance.now()
@@ -151,7 +166,20 @@ async function submitExtraProfile(){
  await search()
 }
 async function finish(){if(searchBusy.value)return;await go('/chat');await search()}
-async function search(){if(searchBusy.value)return;searchError.value='';result.value=null;policies.value=[];searchBusy.value=true;try{const r=await searchPolicies(profile.value);result.value=r;policies.value=Array.isArray(r.policies)?r.policies:[]}catch(e){searchError.value=e.message;if(e.status===401){clearToken();user.value=null}}finally{searchBusy.value=false}}
+async function search(){
+ if(searchBusy.value)return
+ const epoch=conversationEpoch,session=authEpoch
+ searchError.value='';result.value=null;policies.value=[];searchBusy.value=true
+ try{
+  const r=await searchPolicies(profile.value)
+  if(epoch!==conversationEpoch||session!==authEpoch)return
+  result.value=r;policies.value=Array.isArray(r.policies)?r.policies:[]
+ }catch(e){
+  if(epoch!==conversationEpoch||session!==authEpoch)return
+  searchError.value=e.message
+  if(e.status===401){clearToken();user.value=null}
+ }finally{if(epoch===conversationEpoch)searchBusy.value=false}
+}
 async function sendQuestion(text){
  if(chatBusy.value)return
  const q=(text||question.value).trim()
@@ -160,23 +188,24 @@ async function sendQuestion(text){
  if(q.length<2||q.length>1000){chatError.value='질문은 2~1000자로 입력해 주세요.';return}
  const previous=messages.value[messages.value.length-1]
  const context=(previous?.policies?.length?previous.policies:result.value?.policies||[]).map(p=>p.policy_name||p.name)
- const epoch=authEpoch
+ const history=buildConversationContext(messages.value,result.value)
+ const epoch=authEpoch,conversation=conversationEpoch
  const id=crypto.randomUUID()
  messages.value.push({id,question:q,answer:'',pending:true})
  question.value=''
  chatBusy.value=true
  try{
-  const r=await ask(q,profile.value,context)
-  if(epoch!==authEpoch)return
+  const r=await ask(q,profile.value,context,history)
+  if(epoch!==authEpoch||conversation!==conversationEpoch)return
   const index=messages.value.findIndex(m=>m.id===id)
   if(index!==-1)messages.value[index]={...r,id,question:q,pending:false}
  }catch(e){
-  if(epoch!==authEpoch)return
+  if(epoch!==authEpoch||conversation!==conversationEpoch)return
   const message=messages.value.find(m=>m.id===id)
   if(message){message.pending=false;message.error=e.message}
   chatError.value=e.message
   if(e.status===401){clearToken();user.value=null}
- }finally{chatBusy.value=false}
+ }finally{if(conversation===conversationEpoch)chatBusy.value=false}
 }
 const selectedPolicy=ref(null)
 const voiceNotice=ref('')
@@ -210,6 +239,17 @@ watch([messages,result,profile],()=>{
 },{deep:true,flush:'sync'})
 let followingReply=false
 let stopFollowing=()=>{}
+function resetConversation(){
+ conversationEpoch++
+ followingReply=false;stopFollowing()
+ messages.value=[];result.value=null;policies.value=[];question.value=''
+ chatError.value='';searchError.value='';voiceNotice.value='';selectedPolicy.value=null
+ chatBusy.value=false;searchBusy.value=false
+}
+// 새로고침·화면 이동·저장 정보 복원은 유지하고 실제 프로필 변경만 구분한다.
+watch(()=>JSON.stringify(profile.value),()=>{
+ if(!restoringHistory&&!restoringChat.value)resetConversation()
+},{flush:'sync'})
 function trackReply(){
  stopFollowing()
  followingReply=true
@@ -288,6 +328,11 @@ async function logout(){
  catch(e){logoutError.value=e.message}
  finally{busy.value=false}
 }
+function showCategories(){
+ if(currentRoute.path==='/categories'&&currentRoute.hash==='#policy-categories'){
+  document.getElementById('policy-categories')?.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'})
+ }else router.push({path:'/categories',hash:'#policy-categories'})
+}
 function showHow(){if(currentRoute.path==='/home'&&currentRoute.hash==='#how'){document.getElementById('how')?.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'})}else router.push({path:'/home',hash:'#how'})}
 watch(route,()=>{error.value='';showPassword.value=false})
 
@@ -312,12 +357,16 @@ watch(route,()=>{error.value='';showPassword.value=false})
   </section>
  </main>
  <template v-else>
-  <header v-if="surveyPage||route==='/search'||route==='/chat'" class="app-header"><button class="brand-button" @click="go('/home')"><Brand white compact/></button><nav v-if="route==='/chat'" class="ai-header-nav"><button @click="go('/categories')">정책 분야</button><button @click="go('/chat')">AI 튜터와 대화하기</button><button @click="showHow()">이용 방법</button><button @click="logout">로그아웃</button></nav><button v-else-if="user" class="header-link" @click="logout">로그아웃</button></header>
+  <header v-if="surveyPage||route==='/search'||route==='/chat'" class="app-header"><button class="brand-button" @click="go('/home')"><Brand white compact/></button><nav v-if="route==='/chat'" class="ai-header-nav"><button @click="showCategories()">정책 분야</button><button @click="showHow()">이용 방법</button><button v-if="user" :disabled="busy" @click="logout">로그아웃</button></nav><button v-else-if="user" class="header-link" @click="logout">로그아웃</button></header>
   <main v-if="surveyPage" id="main" class="survey-page">
    <img class="survey-glow glow-one" src="/figma/f58fd.svg" alt=""><img class="survey-glow glow-two" src="/figma/f58fd.svg" alt="">
    <section class="survey-content"><span class="step-badge">STEP 0{{step}}</span><h1>{{titles[step-1]}} <small>{{step}} / 5</small></h1><p class="survey-description">{{descriptions[step-1]}}</p>
     <div v-if="step===1" class="age-picker age-picker-wheel"><span>만</span><div ref="ageWheel" class="age-wheel" role="spinbutton" aria-label="만 나이 · 위아래로 스크롤하거나 방향키로 선택" tabindex="0" :aria-valuenow="profile.age" :aria-valuemin="12" :aria-valuemax="49" @scroll="scrollAge" @keydown.up.prevent="selectAge(Math.min(49,profile.age+1))" @keydown.down.prevent="selectAge(Math.max(12,profile.age-1))" @keydown.home.prevent="selectAge(49)" @keydown.end.prevent="selectAge(12)"><button v-for="age in ages" :key="age" tabindex="-1" :class="{active:profile.age===age}" @click="selectAge(age)">{{age}}</button></div><span>세</span></div>
-    <div v-else-if="step===2" class="region-fields region-single"><label for="region">지역</label><select id="region" v-model="profile.region" required><option disabled value="">거주지역을 선택해 주세요</option><option v-for="region in regions" :key="region" :value="region">{{region}}</option></select></div>
+    <div v-else-if="step===2" class="region-grid" role="group" aria-label="거주 지역 선택">
+     <button v-for="region in regions" :key="region" type="button" class="region-button" :class="{selected:profile.region===region}" :aria-pressed="profile.region===region" @click="profile.region=region">
+      <span>{{region}}</span>
+     </button>
+    </div>
     <div v-else-if="step===3" class="choice-grid"><button v-for="item in statuses" :key="item.id" type="button" class="choice-card" :class="{selected:profile.statuses.includes(item.id)}" :aria-pressed="profile.statuses.includes(item.id)" @click="toggle('statuses',item.id,'none')"><small v-if="item.sub">{{item.sub}}</small><strong>{{item.label}}</strong></button></div>
     <div v-else-if="step===4" class="choice-grid interests-grid"><button v-for="item in interests" :key="item.id" class="choice-card" :class="{selected:profile.interests.includes(item.id)}" :aria-pressed="profile.interests.includes(item.id)" @click="toggle('interests',item.id,'unknown')"><img v-if="item.icon" :src="'/figma/'+item.icon" alt=""><strong>{{item.label}}</strong></button></div>
     <div v-else class="choice-grid detail-grid"><button v-for="item in detailOptions" :key="item.label" class="choice-card" :class="{selected:profile.details.includes(item.label)}" :aria-pressed="profile.details.includes(item.label)" @click="toggle('details',item.label)"><img v-if="item.icon" :src="'/figma/'+item.icon" alt=""><strong>{{item.label}}</strong></button></div>
@@ -364,9 +413,10 @@ watch(route,()=>{error.value='';showPassword.value=false})
    <p class="disclaimer">검색 결과는 정책 탐색을 돕기 위한 안내예요. 지원 자격과 신청 가능 여부는 공식 공고 및 담당기관에서 최종 확인해 주세요.</p>
   </main>
   <main v-else id="main" class="landing">
-   <section class="hero"><nav class="site-nav"><button class="home-nav-button" @click="go('/home')"><img src="/figma/0170c.svg" alt="" width="15.2" height="14.2">HOME</button><div><button @click="go('/categories')">정책 분야</button><button @click="go('/chat')">AI 튜터와 대화하기</button><button @click="showHow()">이용 방법</button><button v-if="!user" @click="go('/login')">로그인</button><button v-else @click="start">맞춤 정책</button></div></nav><img class="hero-logo" src="/figma/a7989.svg" alt="YOUTH COMPASS"><p>청년들을 위한 맞춤형 정책 검색 서비스</p><button class="hero-start" @click="start">맞춤 정책 찾기</button></section>
+   <nav class="site-nav" :class="{'on-light-background':!navOverPurple}"><div><button v-if="user" class="nav-policy" @click="start">맞춤 정책</button><button @click="showCategories()">정책 분야</button><button @click="showHow()">이용 방법</button><button v-if="!user" @click="go('/login')">로그인</button><button v-if="user" :disabled="busy" @click="logout">로그아웃</button></div></nav>
+   <section class="hero"><img class="hero-logo" src="/figma/a7989.svg" alt="YOUTH COMPASS"><p>청년들을 위한 맞춤형 정책 검색 서비스</p><button class="hero-start" @click="start">맞춤 정책 찾기</button></section>
    <template v-if="route==='/categories'">
-    <section v-reveal class="category-intro"><h1>정책 분야</h1><div class="vertical-dots"><img src="/figma/c667a.svg" alt=""><img src="/figma/30e60.svg" alt=""><img src="/figma/144ad.svg" alt=""></div><h2>지금 필요한 지원은 무엇인가요?<br>관심 있는 분야부터 살펴보세요.</h2></section>
+    <section v-reveal id="policy-categories" class="category-intro"><h1>정책 분야</h1><div class="vertical-dots"><img src="/figma/c667a.svg" alt=""><img src="/figma/30e60.svg" alt=""><img src="/figma/144ad.svg" alt=""></div><h2>지금 필요한 지원은 무엇인가요?<br>관심 있는 분야부터 살펴보세요.</h2></section>
     <section class="category-list"><article v-reveal v-for="c in categories" :key="c.id" class="category-row"><div><strong class="category-number">{{c.number}}</strong><h2>{{c.title}}</h2><p>{{c.description}}</p></div><img :src="'/figma/'+c.image" :alt="c.title+' 일러스트'"></article><button class="pill" @click="start">맞춤 정책 확인하기 →</button></section>
    </template>
    <template v-else>
@@ -383,8 +433,6 @@ watch(route,()=>{error.value='';showPassword.value=false})
 
 <style scoped src="../assets/youth.css"></style>
 <style scoped>
-.region-single { padding-top: 90px; }
-.region-single select { margin-top: 28px; }
 .logout-error { margin:0; padding:14px 24px; background:#fff1f3; color:#a61b36; position:relative; z-index:10; }
 .hero-start { position:relative; flex-shrink:0; margin:24px auto 28px; padding:15px 34px; min-height:54px; min-width:234px; border:1px solid #ffffff60; border-radius:40px; background:#ffffff12; color:white; font-size:20px; font-weight:600; line-height:1.3; transition:background 180ms ease; }
 .hero-start:hover { background:#ffffff26; }
@@ -451,7 +499,7 @@ watch(route,()=>{error.value='';showPassword.value=false})
 .restore-needle { transform-origin:30px 30px; animation:restore-turn .85s cubic-bezier(.45,0,.25,1) infinite; }
 @keyframes restore-turn { to { transform:rotate(360deg); } }
 @media(prefers-reduced-motion:reduce) { .restore-needle { animation:none; } }
-.app-header:has(.ai-header-nav) { position:sticky; top:0; z-index:14; }
+.app-header { position:sticky; top:0; z-index:14; }
 .chat-toolbar { top:73px; }
 @media(max-width:600px) { .chat-toolbar { top:62px; } }
 .chat-toolbar button { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:40px; padding:10px 16px; border:1px solid #ffffffa6; border-radius:24px; background:#ece8f0c9; color:#342c3c; font-size:14px; line-height:1; backdrop-filter:blur(12px); }
@@ -558,7 +606,6 @@ watch(route,()=>{error.value='';showPassword.value=false})
   .age-wheel button { font-size:112px; }
   .age-picker-wheel>span { padding-top:0; }
   .survey-page { min-height: calc(100svh - 62px); min-height: calc(100dvh - 62px); }
-  .region-single { padding-top: 50px; }
 }
 
 /* 설문은 헤더를 제외한 화면 높이에 맞추고, 내용에 따라 카드와 여백을 줄인다. */
@@ -575,11 +622,12 @@ watch(route,()=>{error.value='';showPassword.value=false})
 .survey-description { flex-shrink:0; margin-bottom:0; min-height:0; font-size:clamp(14px,2dvh,18px); }
 .survey-page .choice-grid {
   flex:1; min-height:0; width:100%; max-width:812px;
+  max-height:calc(388px + clamp(8px,2dvh,24px));
   display:grid; grid-template-columns:repeat(3,minmax(0,1fr));
   grid-auto-rows:minmax(0,1fr); gap:clamp(8px,2dvh,24px);
   margin:clamp(12px,3dvh,30px) auto 0;
 }
-.survey-page .detail-grid { max-width:1100px; grid-template-columns:repeat(4,minmax(0,1fr)); }
+.survey-page .detail-grid { max-width:1100px; max-height:194px; grid-template-columns:repeat(4,minmax(0,1fr)); }
 .survey-page .choice-card { width:100%; min-height:0; padding:clamp(8px,1.5dvh,18px) 12px; gap:clamp(6px,1.5dvh,16px); }
 .survey-page .choice-card strong { font-size:clamp(18px,3.5dvh,32px); }
 .survey-page .choice-card small { font-size:clamp(12px,2dvh,18px); }
@@ -589,13 +637,12 @@ watch(route,()=>{error.value='';showPassword.value=false})
 .survey-page .age-picker-wheel { flex:1; min-height:0; width:100%; padding-top:0; }
 .survey-page .age-wheel { --age-row:clamp(36px,calc((100dvh - 370px)/3),125px); height:calc(var(--age-row)*3); }
 .survey-page .age-wheel button { font-size:var(--age-row); }
-.survey-page .region-single { flex:1; min-height:0; width:100%; justify-content:center; padding-top:0; gap:12px; }
-.survey-page .region-single select { margin:0; }
 @media(max-width:700px) {
   .survey-page { --survey-header:62px; padding-inline:20px; }
   .survey-content h1 { font-size:clamp(20px,3.8dvh,25px); line-height:1.3; }
   .survey-content h1 small { margin-top:4px; }
-  .survey-page .choice-grid,.survey-page .detail-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .survey-page .choice-grid { max-height:calc(405px + 2 * clamp(8px,2dvh,24px)); grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .survey-page .detail-grid { max-height:calc(270px + clamp(8px,2dvh,24px)); grid-template-columns:repeat(2,minmax(0,1fr)); }
   .survey-page .choice-card strong { font-size:clamp(16px,3dvh,23px); }
   .survey-page .choice-card { border-radius:12px; }
   .survey-navigation .pill { min-width:130px; font-size:14px; }
@@ -607,11 +654,82 @@ watch(route,()=>{error.value='';showPassword.value=false})
   .survey-content h1 { margin-block:8px 4px; font-size:20px; }
   .survey-description { font-size:12px; line-height:1.3; }
   .survey-page .choice-grid { grid-template-columns:repeat(3,minmax(0,1fr)); margin-top:8px; gap:8px; }
-  .survey-page .detail-grid { grid-template-columns:repeat(4,minmax(0,1fr)); }
+  .survey-page .detail-grid { max-height:194px; grid-template-columns:repeat(4,minmax(0,1fr)); }
   .survey-page .choice-card { padding:6px; gap:4px; }
   .survey-page .choice-card strong { font-size:16px; }
   .survey-page .choice-card img { width:24px; height:24px; }
   .survey-navigation { margin-top:8px; }
   .survey-navigation .pill { min-height:38px; padding:8px 16px; }
+}
+
+.region-grid {
+  flex:1; min-height:0; width:100%; max-width:800px; max-height:380px;
+  display:grid; grid-template-columns:repeat(6,minmax(0,1fr));
+  grid-template-rows:repeat(3,minmax(0,1fr)); gap:clamp(8px,1.8dvh,16px);
+  margin:clamp(16px,4dvh,36px) auto 0;
+}
+.region-button {
+  position:relative; min-width:0; min-height:0; padding:12px 10px;
+  border:1px solid #ded4ea; border-radius:16px; background:#ffffffd9;
+  box-shadow:0 3px 8px #5134780a; color:#41364d;
+  display:flex; align-items:center; justify-content:center;
+  font-size:clamp(17px,2.6dvh,23px); font-weight:650;
+  transition:background .18s,border-color .18s,box-shadow .18s;
+}
+.region-button:hover { border-color:#b27ae9; background:#f7f0ff; }
+.survey-page .choice-card { transition:background .18s,border-color .18s,box-shadow .18s; }
+.survey-page .choice-card:hover:not(.selected) { border-color:#b27ae9; background:#f7f0ff; }
+.region-button.selected { color:white; background:var(--purple); border-color:var(--purple); box-shadow:0 4px 12px #8738ee30; }
+.region-button.selected:focus-visible { outline-color:#3c096c; }
+@media(max-width:700px) {
+  .region-grid { grid-template-columns:repeat(3,minmax(0,1fr)); grid-template-rows:repeat(6,minmax(0,1fr)); max-width:440px; margin-top:16px; gap:8px; }
+  .region-button { border-radius:12px; padding:6px 8px; font-size:clamp(15px,2.6dvh,19px); }
+}
+@media(max-height:500px) {
+  .region-grid { grid-template-columns:repeat(6,minmax(0,1fr)); grid-template-rows:repeat(3,minmax(0,1fr)); margin-top:10px; gap:6px; }
+  .region-button { font-size:15px; padding:6px; border-radius:10px; }
+}
+
+.site-nav .nav-policy,.ai-header-nav .nav-policy {
+  border:1px solid #ffffffb3; border-radius:999px; padding:10px 20px;
+  background:#ffffff12; color:white; font-weight:650; white-space:nowrap;
+}
+.site-nav .nav-policy:hover,.ai-header-nav .nav-policy:hover { background:#ffffff26; border-color:white; }
+.site-nav>div,.ai-header-nav { align-items:center; }
+@media(max-width:700px) {
+  .site-nav .nav-policy,.ai-header-nav .nav-policy { padding:7px 12px; }
+  .site-nav>div { gap:12px; }
+}
+.site-nav { justify-content:flex-end; }
+
+.site-nav {
+  position:fixed; top:0; left:0; right:0; z-index:30;
+  min-height:80px; padding:16px 40px;
+  background:transparent; box-shadow:none;
+}
+.hero { padding-top:80px; }
+#policy-categories,#how { scroll-margin-top:96px; }
+@media(max-width:700px) {
+  .site-nav { min-height:64px; padding:12px 18px; }
+  .hero { padding-top:64px; }
+  #policy-categories,#how { scroll-margin-top:80px; }
+}
+
+.site-nav.on-light-background button {
+  color:var(--purple);
+}
+.site-nav.on-light-background .nav-policy { border-color:var(--purple); background:transparent; }
+.site-nav.on-light-background .nav-policy:hover { background:#f7f0ff; }
+.site-nav button:not(.nav-policy),.ai-header-nav button {
+  transition:transform .18s ease,color .18s ease;
+}
+@media(hover:hover) {
+  .site-nav button:not(.nav-policy):hover:not(:disabled),.ai-header-nav button:hover:not(:disabled) {
+    transform:translateY(-1px);
+    text-decoration:underline;
+    text-decoration-thickness:1px;
+    text-underline-offset:6px;
+    text-decoration-color:currentColor;
+  }
 }
 </style>

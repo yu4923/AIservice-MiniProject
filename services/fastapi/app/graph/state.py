@@ -22,6 +22,18 @@ class ScopeDecision(BaseModel):
     reason: str
 
 
+class QuestionInterpretation(BaseModel):
+    in_scope: bool
+    intent: Literal["recommendation", "eligibility", "application_documents", "schedule", "comparison", "other"]
+    uses_previous_context: bool
+    target_policies: list[str] = Field(max_length=5)
+    search_query: str = Field(min_length=1, max_length=1500)
+    api_keywords: list[str] = Field(max_length=3)
+    needs_clarification: bool
+    clarification_question: str
+    reason: str
+
+
 class EvidenceDecision(BaseModel):
     sufficient: bool
     # Policy facts can be answerable even when current recruitment is unverified.
@@ -72,7 +84,7 @@ class AnswerResponse(BaseModel):
     # 기존 클라이언트가 prompt·response를 읽어도 동작하도록 같은 값을 함께 제공합니다.
     prompt: str
     response: str
-    status: Literal["answered", "needs_profile", "out_of_scope", "insufficient"]
+    status: Literal["answered", "needs_profile", "needs_clarification", "out_of_scope", "insufficient"]
     sources: list[str] = Field(default_factory=list)
     citations: list[Citation] = Field(default_factory=list)
     policies: list[PolicyMatch] = Field(default_factory=list)
@@ -102,6 +114,7 @@ class PolicyState(TypedDict, total=False):
     missing_fields: list[str]
     search_query: str
     scope: ScopeDecision
+    interpretation: QuestionInterpretation
     documents: list[Evidence]
     review: EvidenceDecision
     comparison: ComparisonResult
