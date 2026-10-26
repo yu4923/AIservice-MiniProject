@@ -251,6 +251,13 @@ class PolicyNodes:
             review = await self.reasoner.review(payload_for(state, docs))
             valid_ids = {doc.evidence_id for doc in docs}
             review.usable_ids = list(dict.fromkeys(i for i in review.usable_ids if i in valid_ids))
+            baseline = state.get("rag_candidates")
+            if baseline and baseline.policies:
+                retained = [i for policy in baseline.policies for i in policy.evidence_ids if i in valid_ids]
+                review.usable_ids = list(dict.fromkeys(review.usable_ids + retained))
+                review.sufficient = bool(review.usable_ids)
+                # API 재검토가 기존 후보의 최신 모집 여부까지 보장하지 않는다.
+                review.application_status_verified = False
             if not review.usable_ids:
                 review.sufficient = False
             usable_docs = [doc for doc in docs if doc.evidence_id in review.usable_ids]
@@ -265,6 +272,9 @@ class PolicyNodes:
     # 메인 Graph가 이 분기를 선택합니다. Agent는 외부 정책 API 도구만 사용합니다.
     # API 미설정·장애라도 기존 문서를 버리지 않고 보완 여부를 기록합니다.
     async def supplement(self, state):
+        baseline = None
+        if state["review"].sufficient:
+            baseline = (await self.compare_conditions(state))["comparison"]
         # GraphPolicyAgent converts official policy records to ApiLookupResult.
         # 담당자가 주입한 객체의 lookup()만 호출하며, 오류가 나도 근거를 만들어 내지 않습니다.
         # 정책 근거의 title은 추출한 정책명이며 PDF 파일명을 검색어로 사용하지 않는다.
@@ -276,7 +286,9 @@ class PolicyNodes:
         keywords = [name for name in names if name][:3] or policy_keywords(state["request"].profile)[:3]
         try:
             result = await asyncio.wait_for(self.api_agent.lookup(
-                ",".join(keywords), state["review"].missing_information), timeout=50)
+                ",".join(keywords), state["review"].missing_information,
+                region=state["request"].profile.region,
+                fallback_keywords=policy_keywords(state["request"].profile)[:3]), timeout=50)
         except TimeoutError:
             result = ApiLookupResult(status="timeout")
         except Exception:
@@ -285,8 +297,11 @@ class PolicyNodes:
         status = result.status if result.status in valid_statuses else "failed"
         added = to_evidence([doc for doc in result.documents if isinstance(doc, Document)],
                             "policy_api", "A")
-        return self._step(state, "supplement", api_status=status,
-                          api_added=bool(added), documents=state.get("documents", []) + added)
+        updates = dict(api_status=status, api_added=bool(added),
+                       documents=state.get("documents", []) + added)
+        if baseline is not None:
+            updates["rag_candidates"] = baseline
+        return self._step(state, "supplement", **updates)
 
     # [6. 사용자 조건과 정책 조건 비교]
     # 충분한 근거만 골라 비교합니다. API에서 가져온 문서도 동일한 검토와 비교를 거칩니다.
@@ -295,6 +310,16 @@ class PolicyNodes:
         payload = payload_for(state, docs)
         payload["evidence_review"] = state["review"].model_dump()
         comparison = await self.reasoner.compare(payload)
+        # 보완 후 모델이 목록에서 생략하더라도 원래 근거가 있는 후보를 보존한다.
+        present = {re.sub(r"\s+", "", policy.policy_name) for policy in comparison.policies}
+        baseline = state.get("rag_candidates")
+        if baseline:
+            for candidate in baseline.policies:
+                if re.sub(r"\s+", "", candidate.policy_name) not in present:
+                    retained = candidate.model_copy(deep=True)
+                    retained.status = "needs_review"
+                    retained.checks.append("추가 조회로 최신 정보를 확인하지 못해 기존 문서 기준 후보로 유지합니다.")
+                    comparison.policies.append(retained)
         by_id = {doc.evidence_id: doc for doc in docs}
         for policy in comparison.policies:
             if not policy.evidence_ids or not set(policy.evidence_ids).issubset(by_id):
@@ -313,6 +338,9 @@ class PolicyNodes:
             if reasons:
                 policy.status = "not_eligible"
                 policy.reason += " / " + ", ".join(dict.fromkeys(reasons))
+            elif policy.status == "not_eligible":
+                policy.status = "needs_review"
+                policy.checks.append("명확한 조건 불일치가 검증되지 않아 세부 자격을 추가 확인해야 합니다.")
         return self._step(state, "compare_conditions", comparison=comparison)
 
     # [7. A + G: 근거를 넣고 답변 생성]
