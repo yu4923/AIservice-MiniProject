@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import Brand from '../components/Brand.vue'
 import ChatAttachments from '../components/ChatAttachments.vue'
 import AiResponse from '../components/AiResponse.vue'
+import MarkdownAnswer from '../components/MarkdownAnswer.vue'
 import { loadChat, saveChat } from '../api/chatHistory'
 
 const vComposerSize = {
@@ -151,7 +152,32 @@ async function submitExtraProfile(){
 }
 async function finish(){if(searchBusy.value)return;await go('/chat');await search()}
 async function search(){if(searchBusy.value)return;searchError.value='';result.value=null;policies.value=[];searchBusy.value=true;try{const r=await searchPolicies(profile.value);result.value=r;policies.value=Array.isArray(r.policies)?r.policies:[]}catch(e){searchError.value=e.message;if(e.status===401){clearToken();user.value=null}}finally{searchBusy.value=false}}
-async function sendQuestion(text){if(chatBusy.value)return;const q=(text||question.value).trim();if(!q)return;chatError.value='';if(q.length>1000){chatError.value='질문은 1000자 이하로 입력해 주세요.';return}question.value=q;chatBusy.value=true;try{const previous=messages.value[messages.value.length-1];const context=(previous?.policies?.length?previous.policies:result.value?.policies||[]).map(p=>p.policy_name||p.name);const r=await ask(q,profile.value,context);messages.value.push({question:q,...r});question.value=''}catch(e){chatError.value=e.message;if(e.status===401){clearToken();user.value=null}}finally{chatBusy.value=false}}
+async function sendQuestion(text){
+ if(chatBusy.value)return
+ const q=(text||question.value).trim()
+ if(!q)return
+ chatError.value=''
+ if(q.length<2||q.length>1000){chatError.value='질문은 2~1000자로 입력해 주세요.';return}
+ const previous=messages.value[messages.value.length-1]
+ const context=(previous?.policies?.length?previous.policies:result.value?.policies||[]).map(p=>p.policy_name||p.name)
+ const epoch=authEpoch
+ const id=crypto.randomUUID()
+ messages.value.push({id,question:q,answer:'',pending:true})
+ question.value=''
+ chatBusy.value=true
+ try{
+  const r=await ask(q,profile.value,context)
+  if(epoch!==authEpoch)return
+  const index=messages.value.findIndex(m=>m.id===id)
+  if(index!==-1)messages.value[index]={...r,id,question:q,pending:false}
+ }catch(e){
+  if(epoch!==authEpoch)return
+  const message=messages.value.find(m=>m.id===id)
+  if(message){message.pending=false;message.error=e.message}
+  chatError.value=e.message
+  if(e.status===401){clearToken();user.value=null}
+ }finally{chatBusy.value=false}
+}
 const selectedPolicy=ref(null)
 const voiceNotice=ref('')
 const followupQuestions=computed(()=>{
@@ -185,7 +211,7 @@ function restoreChat(id){
 watch([messages,result,profile],()=>{
  if(restoringHistory||!loginId.value||restoringChat.value)return
  let saved=false
- try{saved=saveChat(localStorage,loginId.value,{messages:messages.value,result:result.value,profile:profile.value})}catch{}
+ try{saved=saveChat(localStorage,loginId.value,{messages:messages.value.filter(m=>!m.pending),result:result.value,profile:profile.value})}catch{}
  historyNotice.value=saved?'':'브라우저 저장 공간을 사용할 수 없어 대화가 유지되지 않을 수 있어요.'
 },{deep:true,flush:'sync'})
 let followingReply=false
@@ -204,7 +230,7 @@ async function revealReply(){
  await nextTick()
  await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))
  if(!followingReply||route.value!=='/chat')return
- const responses=document.querySelectorAll('.ai-conversation .ai-response')
+ const responses=document.querySelectorAll(chatBusy.value?'.ai-conversation .user-question':'.ai-conversation .ai-response')
  const target=responses[responses.length-1]
  if(!target)return
  const toolbar=document.querySelector('.chat-toolbar')
@@ -318,7 +344,7 @@ watch(route,()=>{error.value='';showPassword.value=false})
     <p v-if="profileError" class="error" role="alert">{{profileError}}</p><button class="pill" :disabled="searchBusy">{{searchBusy?'검색 요청 중…':'입력하고 검색하기'}}</button>
    </form>
    <section v-if="searchBusy||searchError||result" id="personal-recommendation" class="ai-messages personal-recommendation" aria-live="polite"><AiResponse :loading="searchBusy" :text="result?.answer||''"><p v-if="searchError" class="error" role="alert">{{searchError}} <button type="button" class="text-button" @click="search">다시 시도</button></p><article v-if="result?.answer"><p class="answer-text">{{result.answer}}</p><ul v-if="result.sources?.length" class="sources"><li v-for="(s,i) in result.sources" :key="i"><a v-if="sourceUrl(s)" :href="sourceUrl(s)" target="_blank" rel="noopener noreferrer">{{sourceText(s)}}</a><span v-else>{{sourceText(s)}}</span></li></ul></article><article v-for="(policy,i) in policies" :key="policy.policy_id||i"><h2>{{policy.name}}</h2><p>{{policy.recommendation_reason}}</p><p>{{policy.benefit}}</p></article><p v-if="result&&!needsProfile&&!result.answer&&!policies.length">검색 응답을 받았어요. 표시할 정책이 없거나 응답 형식 확인이 필요해요.</p></AiResponse></section>
-   <section v-if="messages.length||chatBusy" class="ai-messages" aria-label="AI 대화 내역" aria-live="polite"><article v-for="(m,i) in messages" :key="i"><p class="user-question">{{m.question}}</p><AiResponse :text="m.answer"><p class="answer-text">{{m.answer}}</p><ul v-if="m.sources?.length" class="sources"><li v-for="(s,j) in m.sources" :key="j"><a v-if="sourceUrl(s)" :href="sourceUrl(s)" target="_blank" rel="noopener noreferrer">{{sourceText(s)}}</a><span v-else>{{sourceText(s)}}</span></li></ul></AiResponse></article><AiResponse v-if="chatBusy" loading /></section>
+   <section v-if="messages.length||chatBusy" class="ai-messages" aria-label="AI 대화 내역" aria-live="polite"><article v-for="(m,i) in messages" :key="i"><p class="user-question">{{m.question}}</p><AiResponse :text="m.answer" :loading="m.pending"><MarkdownAnswer v-if="m.answer" :text="m.answer" /><p v-if="m.error" class="error" role="alert">{{m.error}}</p><ul v-if="m.sources?.length" class="sources"><li v-for="(s,j) in m.sources" :key="j"><a v-if="sourceUrl(s)" :href="sourceUrl(s)" target="_blank" rel="noopener noreferrer">{{sourceText(s)}}</a><span v-else>{{sourceText(s)}}</span></li></ul></AiResponse></article></section>
    <nav v-if="!restoringChat&&!chatBusy&&!searchBusy&&(result||messages.length)" class="followup-questions" aria-label="맞춤 후속 질문"><button v-for="q in followupQuestions" :key="q" type="button" @click="sendQuestion(q)">{{q}}</button></nav>
    <button v-if="result && !restoringChat" class="recommend-jump" type="button" @click="jumpToRecommendation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z"/></svg>내 맞춤 추천 보기 <span aria-hidden="true">↑</span></button>
    <form v-composer-size class="ai-composer" @submit.prevent="sendQuestion()"><label for="ai-question" class="sr-only">정책 질문</label><textarea id="ai-question" v-model="question" @keydown="onChatKeydown" placeholder="질문하거나 말하거나 파일을 보내세요." maxlength="1000" rows="2" :disabled="chatBusy"></textarea><div class="ai-composer-footer"><ChatAttachments class="ai-attachments" /><div class="ai-composer-actions"><button type="button" class="ai-mic" aria-label="음성 입력 안내" @click="voiceNotice='음성 대화는 백엔드의 STT·음성 API 연결 후 이용할 수 있어요.'"><img src="/figma/f1e12.svg" alt=""></button><button v-if="question.trim()" class="ai-send" type="submit" :disabled="chatBusy" :aria-label="chatBusy?'답변 작성 중':'질문 보내기'"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3.5 3.5L21 12L3.5 20.5L6.5 13L15 12L6.5 11L3.5 3.5Z" fill="currentColor"/></svg></button><button class="ai-talk" type="button" @click="voiceNotice='음성 대화는 백엔드의 STT·음성 API 연결 후 이용할 수 있어요.'">Youth Compass Ai와 말하기 <img src="/figma/220e0.svg" alt=""></button></div></div><p v-if="voiceNotice" class="ai-notice" role="status">{{voiceNotice}}</p><p v-if="chatError" class="error" role="alert">{{chatError}}</p></form>
@@ -333,7 +359,7 @@ watch(route,()=>{error.value='';showPassword.value=false})
    <section v-if="result" class="answer-panel"><h2>찾은 정책을 정리했어요</h2><p class="answer-text">{{result.answer}}</p><ul class="sources"><li v-for="(s,i) in result.sources||[]" :key="i"><a v-if="sourceUrl(s)" :href="sourceUrl(s)" target="_blank" rel="noopener noreferrer">{{sourceText(s)}} ↗</a><span v-else>{{sourceText(s)}}</span></li></ul><p v-if="!policies.length&&!result.sources?.length">확인 가능한 정책 근거가 없어요. 조건을 바꾸거나 다른 질문을 입력해 주세요.</p></section>
    </template>
    <div v-if="route==='/chat'" class="results-heading"><h1>나에게 맞는 정책, AI와 함께 찾아보세요</h1><p>설문에서 선택한 조건을 바탕으로 질문해 보세요.</p><button class="text-button" @click="go('/survey/1')">설문 조건 수정하기 →</button><p v-if="demoMode" class="demo-banner">프론트엔드 체험 화면입니다. 실제 AI 응답은 백엔드 연결 후 제공돼요.</p></div>
-   <section class="chat-panel"><img src="/figma/52188.png" alt="" class="chat-robot"><span class="step-badge">ASK AI</span><h2>궁금한 정책, 더 물어보세요.</h2><p>입력한 조건과 정책 자료를 바탕으로 답변해 드려요.</p><div class="suggested-questions"><button v-for="q in examples.slice(0,2)" :key="q[0]" @click="question=q[0]">{{q[0]}}</button></div><div v-for="(m,i) in messages" :key="i" class="chat-message"><p class="user-question">{{m.question}}</p><p class="answer-text">{{m.answer}}</p><ul class="sources"><li v-for="(s,j) in m.sources||[]" :key="j"><a v-if="sourceUrl(s)" :href="sourceUrl(s)" target="_blank" rel="noopener noreferrer">{{sourceText(s)}} ↗</a><span v-else>{{sourceText(s)}}</span></li></ul><p v-if="m.needs_review||m.handoff" class="muted">세부 조건은 공식 공고 및 담당기관에서 확인해 주세요.</p></div><p v-if="chatBusy" role="status" class="loading">근거를 확인하며 답변을 작성하고 있어요…</p><p v-if="chatError" role="alert" class="error">{{chatError}}</p><form class="chat-input" @submit.prevent="sendQuestion()"><textarea v-model="question" aria-label="정책에 대한 질문" placeholder="정책에 대해 궁금한 점을 입력해 주세요" maxlength="1000" rows="2"></textarea><button class="pill" :disabled="chatBusy||!question.trim()">질문하기 ↑</button></form><p class="muted">음성 입력은 STT API 연결 후 제공할 예정이에요.</p></section>
+   <section class="chat-panel"><img src="/figma/52188.png" alt="" class="chat-robot"><span class="step-badge">ASK AI</span><h2>궁금한 정책, 더 물어보세요.</h2><p>입력한 조건과 정책 자료를 바탕으로 답변해 드려요.</p><div class="suggested-questions"><button v-for="q in examples.slice(0,2)" :key="q[0]" @click="question=q[0]">{{q[0]}}</button></div><div v-for="(m,i) in messages" :key="i" class="chat-message"><p class="user-question">{{m.question}}</p><MarkdownAnswer v-if="m.answer" :text="m.answer" /><p v-if="m.error" class="error" role="alert">{{m.error}}</p><ul class="sources"><li v-for="(s,j) in m.sources||[]" :key="j"><a v-if="sourceUrl(s)" :href="sourceUrl(s)" target="_blank" rel="noopener noreferrer">{{sourceText(s)}} ↗</a><span v-else>{{sourceText(s)}}</span></li></ul><p v-if="m.needs_review||m.handoff" class="muted">세부 조건은 공식 공고 및 담당기관에서 확인해 주세요.</p></div><p v-if="chatBusy" role="status" class="loading">근거를 확인하며 답변을 작성하고 있어요…</p><p v-if="chatError" role="alert" class="error">{{chatError}}</p><form class="chat-input" @submit.prevent="sendQuestion()"><textarea v-model="question" aria-label="정책에 대한 질문" placeholder="정책에 대해 궁금한 점을 입력해 주세요" maxlength="1000" rows="2"></textarea><button class="pill" :disabled="chatBusy||!question.trim()">질문하기 ↑</button></form><p class="muted">음성 입력은 STT API 연결 후 제공할 예정이에요.</p></section>
    <p class="disclaimer">검색 결과는 정책 탐색을 돕기 위한 안내예요. 지원 자격과 신청 가능 여부는 공식 공고 및 담당기관에서 최종 확인해 주세요.</p>
   </main>
   <main v-else id="main" class="landing">
