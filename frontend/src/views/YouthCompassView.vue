@@ -249,11 +249,18 @@ watch([chatBusy,searchBusy],([chat,search],[wasChat,wasSearch])=>{
 },{flush:'post'})
 watch(route,()=>{followingReply=false;stopFollowing()})
 onBeforeUnmount(()=>stopFollowing())
-function newChat(){
+async function newChat(){
  if(chatBusy.value||searchBusy.value)return
+ followingReply=false;stopFollowing()
+ restoringHistory=true
  messages.value=[];result.value=null;policies.value=[];question.value='';chatError.value='';searchError.value='';voiceNotice.value=''
- window.scrollTo({top:0,behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'})
- nextTick(()=>document.getElementById('ai-question')?.focus({preventScroll:true}))
+ profile.value=emptyProfile();householdInput.value='';profileError.value='';selectedPolicy.value=null
+ clearProfile(sessionStorage)
+ restoringHistory=false
+ let saved=false
+ try{saved=saveChat(localStorage,loginId.value,{messages:[],result:null,profile:profile.value})}catch{}
+ historyNotice.value=saved?'':'브라우저 저장 공간을 사용할 수 없어 대화가 유지되지 않을 수 있어요.'
+ await go('/survey/1')
 }
 function backFromChat(){if(window.history.state?.back)router.back();else go('/home')}
 function jumpToRecommendation(){
