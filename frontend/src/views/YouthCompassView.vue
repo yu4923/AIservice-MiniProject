@@ -151,7 +151,7 @@ async function submitExtraProfile(){
 }
 async function finish(){if(searchBusy.value)return;await go('/chat');await search()}
 async function search(){if(searchBusy.value)return;searchError.value='';result.value=null;policies.value=[];searchBusy.value=true;try{const r=await searchPolicies(profile.value);result.value=r;policies.value=Array.isArray(r.policies)?r.policies:[]}catch(e){searchError.value=e.message;if(e.status===401){clearToken();user.value=null}}finally{searchBusy.value=false}}
-async function sendQuestion(text){if(chatBusy.value)return;const q=(text||question.value).trim();if(!q)return;chatError.value='';if(q.length>1000){chatError.value='질문은 1000자 이하로 입력해 주세요.';return}question.value=q;chatBusy.value=true;try{const r=await ask(q,profile.value);messages.value.push({question:q,...r});question.value=''}catch(e){chatError.value=e.message;if(e.status===401){clearToken();user.value=null}}finally{chatBusy.value=false}}
+async function sendQuestion(text){if(chatBusy.value)return;const q=(text||question.value).trim();if(!q)return;chatError.value='';if(q.length>1000){chatError.value='질문은 1000자 이하로 입력해 주세요.';return}question.value=q;chatBusy.value=true;try{const previous=messages.value[messages.value.length-1];const context=(previous?.policies?.length?previous.policies:result.value?.policies||[]).map(p=>p.policy_name||p.name);const r=await ask(q,profile.value,context);messages.value.push({question:q,...r});question.value=''}catch(e){chatError.value=e.message;if(e.status===401){clearToken();user.value=null}}finally{chatBusy.value=false}}
 const selectedPolicy=ref(null)
 const voiceNotice=ref('')
 const followupQuestions=computed(()=>{

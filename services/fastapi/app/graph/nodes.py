@@ -109,6 +109,19 @@ class LLMReasoner:
             "각 항목의 근거가 없으면 benefit 또는 application_period를 null로 반환하라.", payload)
 
     async def generate(self, payload):
+        if payload.get("prompt") is not None:
+            return await self._ask(AnswerDraft,
+                "사용자의 현재 질문에 직접 답하는 한국어 정책 상담 답변을 작성하라. "
+                "policy_context는 앞서 안내한 정책명이며 질문 대상 해석에만 사용하고 사실의 근거로 쓰지 마라. "
+                "신청 조건 질문에는 자격 조건을, 서류·절차 질문에는 제출 서류와 신청 순서를, "
+                "일정 질문에는 확인된 신청 기간을 설명하라. 질문하지 않은 지원 내용·추천 이유를 반복하지 마라. "
+                "정책 추천 형식이나 '지원 내용/추천 이유/확인할 사항' 고정 틀을 사용하지 마라. "
+                "질문 대상이 여러 정책 중 불명확하면 어떤 정책인지 짧게 확인하라. "
+                "문서와 API에서 확인된 내용만 말하고, 없는 서류·절차·신청 자격을 추정하지 마라. "
+                "부족한 정보는 무엇을 확인하지 못했는지 한 번만 설명하라. "
+                "과거 신청 기간은 연도를 명시하고 현재 모집 공고처럼 안내하지 마라. "
+                "일반 텍스트와 줄바꿈을 사용하고 Markdown·HTML·내부 근거 ID·파일 경로를 본문에 쓰지 마라. "
+                "cited_ids에는 실제로 사용한 입력 문서 ID를 넣어라. 출처는 응답에서 별도로 제공한다.", payload)
         return await self._ask(AnswerDraft,
             "검토된 정책과 문서만으로 한국어 안내를 작성하라. "
             "정책마다 정책명, 지원 내용, 확인된 대상 조건, 사용자에게 추천하거나 제외하는 이유, "
@@ -153,6 +166,8 @@ def to_evidence(docs: list[Document], origin: str, prefix: str) -> list[Evidence
 
 def payload_for(state: PolicyState, docs: list[Evidence]) -> dict:
     return {"question": state["request"].question,
+            "prompt": state["request"].prompt,
+            "policy_context": state["request"].policy_context,
             "profile": state["request"].profile.model_dump(),
             "reference_date": state["reference_date"],
             "policy_scopes": POLICY_SCOPES,
@@ -225,9 +240,10 @@ class PolicyNodes:
     # 소득은 임의의 수치 필터로 바꾸지 않고, 조건 비교 단계에서 단위와 함께 확인합니다.
     async def build_search(self, state):
         req = state["request"]
-        scope = await self.reasoner.scope(req.question)
+        context = " ".join(req.policy_context) if req.is_chat else ""
+        scope = await self.reasoner.scope(f"{req.question}\n대화 대상 정책: {context}" if context else req.question)
         profile = req.profile
-        query = (f"{req.question} 청년정책 {profile.region} {profile.age}세 "
+        query = (f"{req.question} {context} 청년정책 {profile.region} {profile.age}세 "
                  f"{' '.join(STATUS_LABELS[x] for x in profile.statuses)} {' '.join(policy_keywords(profile))}")
         return self._step(state, "build_search", scope=scope, search_query=query[:2500])
 
@@ -284,6 +300,8 @@ class PolicyNodes:
             for doc in state.get("documents", [])
             if doc.evidence_id in state["review"].usable_ids))
         keywords = [name for name in names if name][:3] or policy_keywords(state["request"].profile)[:3]
+        if state["request"].is_chat and state["request"].policy_context:
+            keywords = state["request"].policy_context[:3]
         try:
             result = await asyncio.wait_for(self.api_agent.lookup(
                 ",".join(keywords), state["review"].missing_information,
@@ -354,7 +372,7 @@ class PolicyNodes:
                               answer="수집한 자료에서 근거가 있는 정책 후보를 확인하지 못했습니다.", cited_ids=[])
         # [명확한 조건 불일치]
         # 모두 제외 대상이면 모델이 다시 '추천합니다'라고 바꿔 쓰지 않도록 코드로 안내합니다.
-        if all(policy.status == "not_eligible" for policy in policies):
+        if not state["request"].is_chat and all(policy.status == "not_eligible" for policy in policies):
             explanation = "\n".join(f"- {policy.policy_name}: {policy.reason}" for policy in policies)
             return self._step(state, "generate", status="answered", cited_ids=sorted(ids),
                 answer=application_notice("검색된 정책은 확인된 사용자 조건과 일치하지 않습니다.\n" + explanation, state["review"]),
@@ -369,7 +387,9 @@ class PolicyNodes:
                 or not set(draft.cited_ids).issubset(ids)
                 or not inline_ids.issubset(set(draft.cited_ids))):
             raise ValueError("생성된 답변의 출처를 확인할 수 없습니다.")
-        return self._step(state, "generate", status="answered", answer=application_notice(draft.answer, state["review"]),
+        answer = (draft.answer if state["request"].is_chat
+                  else application_notice(draft.answer, state["review"]))
+        return self._step(state, "generate", status="answered", answer=answer,
                           cited_ids=list(dict.fromkeys(draft.cited_ids)),
                           follow_up_question=state["comparison"].follow_up_question)
 

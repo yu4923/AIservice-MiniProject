@@ -105,15 +105,16 @@ export async function searchPolicies(profile) {
   // Search integration is independent of the login/chat preview mode.
   // Only send fields actually collected by the survey; never invent income data.
   const payload = buildSearchProfile(profile)
-  const data = await request(searchBase, '/search', { question: '설문에서 선택한 조건과 관심 분야에 맞는 청년 정책을 검색해 주세요.', profile: payload }, 'POST', 150000)
+  const data = await request(searchBase, '/search', { profile: payload }, 'POST', 150000)
   return adaptSearchResponse(data)
 }
-export async function ask(question, profile) {
+export async function ask(question, profile, policyContext = []) {
   if(typeof question!=='string')throw new Error('질문을 입력해 주세요.')
   const value=question.trim()
   if(value.length<2||value.length>1000)throw new Error('질문은 앞뒤 공백을 제외하고 2~1,000자로 입력해 주세요.')
   if (!profile || !profile.region || !profile.statuses?.length || !profile.interests?.length) throw new Error('맞춤 답변을 위해 먼저 설문을 완료해 주세요.')
   const payload = buildSearchProfile(profile)
-  const data = await request(searchBase, '/search', { question: value, profile: payload }, 'POST', 150000)
+  const policy_context = [...new Set(policyContext.filter(name => typeof name === 'string' && name.trim() && name.length <= 200).map(name => name.trim()))].slice(0, 5)
+  const data = await request(searchBase, '/search', { prompt: value, profile: payload, policy_context }, 'POST', 150000)
   return adaptSearchResponse(data)
 }

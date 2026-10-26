@@ -49,12 +49,49 @@ class Reasoner:
 
 
 def request(**changes):
-    data = dict(question='주거 정책을 검색해줘', profile=dict(age=25, region='서울', statuses=['unemployed'], interests=['housing'], details=['월세·주거비']), source='web')
+    data = dict(profile=dict(age=25, region='서울', statuses=['unemployed'], interests=['housing'], details=['월세·주거비']), source='web')
     data.update(changes)
     return RAGRequest(**data)
 
 
 class GraphTests(unittest.IsolatedAsyncioTestCase):
+    def test_prompt_presence_selects_chat_or_recommendation(self):
+        from app.input_validation import RECOMMEND_PROMPT
+        from pydantic import ValidationError
+        profile = request().profile.model_dump()
+        self.assertEqual(RAGRequest(profile=profile).question, RECOMMEND_PROMPT)
+        self.assertFalse(RAGRequest(profile=profile).is_chat)
+        self.assertFalse(RAGRequest(profile=profile, prompt=None).is_chat)
+        self.assertTrue(RAGRequest(profile=profile, prompt='신청 서류는?').is_chat)
+        self.assertEqual(RAGRequest(profile=profile, prompt='신청 서류는?').question, '신청 서류는?')
+        for value in ['', '  ', 'a']:
+            with self.assertRaises(ValidationError):
+                RAGRequest(profile=profile, prompt=value)
+        with self.assertRaises(ValidationError):
+            RAGRequest(profile=profile, mode='chat')
+
+    async def test_chat_prompt_is_question_focused(self):
+        captured = {}
+        class RecordingReasoner(LLMReasoner):
+            async def _ask(self, schema, instruction, payload):
+                captured.update(instruction=instruction, payload=payload)
+                return AnswerDraft(answer='확인된 서류는 없습니다.', cited_ids=['V1'])
+        await RecordingReasoner().generate({'prompt': '필요한 서류는?',
+                                            'policy_context': ['서울 청년수당']})
+        self.assertIn('현재 질문에 직접 답하는', captured['instruction'])
+        self.assertIn('고정 틀을 사용하지 마라', captured['instruction'])
+
+    async def test_chat_context_reaches_search_and_has_no_automatic_recruitment_notice(self):
+        class ContextRetriever(Retriever):
+            async def search(self, query, *args):
+                self.query = query
+                return self.documents
+        retriever = ContextRetriever([DOC])
+        result = await PolicyRagService(retriever, Reasoner(), Agent()).answer_question(
+            request(prompt='신청 서류는?', policy_context=['서울 청년수당']))
+        self.assertIn('서울 청년수당', retriever.query)
+        self.assertNotIn('현재 모집 여부·신청 가능 여부:', result.answer)
+
     async def test_api_review_cannot_silently_drop_rag_candidate(self):
         class ChangingReasoner(Reasoner):
             async def review(self, payload):

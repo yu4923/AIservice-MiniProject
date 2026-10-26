@@ -6,6 +6,8 @@ from pydantic import (
     AliasChoices, BaseModel, ConfigDict, Field, ValidationInfo, field_validator,
 )
 
+RECOMMEND_PROMPT = "설문에서 선택한 조건과 관심 분야에 맞는 청년 정책을 검색해 주세요."
+
 REGIONS = frozenset({
     "서울", "부산", "대구", "인천", "광주", "대전", "울산", "세종", "경기",
     "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주",
@@ -92,14 +94,33 @@ class RAGRequest(BaseModel):
     """질문과 검증된 설문을 검색 API에 전달한다."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
-    question: str = Field(min_length=2, max_length=1000,
-                          validation_alias=AliasChoices("question", "prompt"))
+
+    prompt: str | None = Field(default=None, min_length=2, max_length=1000,
+                               validation_alias=AliasChoices("prompt", "question"))
     profile: UserProfile
+
+    @property
+    def question(self) -> str:
+        return self.prompt if self.prompt is not None else RECOMMEND_PROMPT
+
+    @property
+    def is_chat(self) -> bool:
+        return self.prompt is not None
+
+    policy_context: list[str] = Field(default_factory=list, max_length=5)
+
+    @field_validator("policy_context")
+    @classmethod
+    def check_policy_context(cls, values: list[str]) -> list[str]:
+        if any(not value.strip() or len(value) > 200 for value in values):
+            raise ValueError("정책명은 1~200자로 입력해 주세요.")
+        return list(dict.fromkeys(value.strip() for value in values))
+
     # all과 기본값은 기존 추천 서버 계약을 유지한다.
     source: Literal["pdf", "web", "all"] = "all"
     top_k: int = Field(default=5, ge=1, le=20)
 
-    @field_validator("question", mode="before")
+    @field_validator("prompt", mode="before")
     @classmethod
     def prepare_question(cls, value):
         """질문만 앞뒤 공백을 제거하며 본문·대소문자·줄바꿈은 보존한다."""

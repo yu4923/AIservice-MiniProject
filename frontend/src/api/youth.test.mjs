@@ -75,8 +75,8 @@ test('survey recommendation sends question and validated profile with cookies', 
   assert.equal(sent.credentials, 'include')
   assert.deepEqual(sent.headers, { 'Content-Type': 'application/json' })
   const body = JSON.parse(sent.body)
-  assert.deepEqual(Object.keys(body), ['question', 'profile'])
-  assert.ok(body.question.length >= 2)
+  assert.deepEqual(Object.keys(body), ['profile'])
+  assert.equal(body.question, undefined)
   assert.equal(body.profile.income, null)
   assert.equal(body.profile.employment_status, null)
   assert.equal(body.profile.household_size, null)
@@ -139,11 +139,11 @@ test('chat sends trimmed question and actual survey profile with cookies', async
     assert.equal(url,'http://localhost:8002/search')
     assert.equal(options.method,'POST')
     assert.equal(options.credentials,'include')
-    assert.deepEqual(JSON.parse(options.body),{question:'면접 지원 조건이 궁금해요',profile:api.buildSearchProfile(profile())})
+    assert.deepEqual(JSON.parse(options.body),{prompt:'면접 지원 조건이 궁금해요',profile:api.buildSearchProfile(profile()),policy_context:['서울 청년수당']})
     assert.deepEqual(options.headers,{'Content-Type':'application/json'})
     return {ok:true,json:async()=>({answer:'서버 응답'})}
   }
-  assert.equal((await api.ask('  면접 지원 조건이 궁금해요  ',profile())).answer,'서버 응답')
+  assert.equal((await api.ask('  면접 지원 조건이 궁금해요  ',profile(),['서울 청년수당'])).answer,'서버 응답')
 })
 
 test('chat rejects blank, short, non-string and oversized questions', async () => {
