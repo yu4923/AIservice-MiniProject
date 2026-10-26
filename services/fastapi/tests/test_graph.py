@@ -28,7 +28,7 @@ class Retriever:
 class Agent:
     configured = True
     def __init__(self): self.calls = 0
-    async def lookup(self, query, missing_information):
+    async def lookup(self, query, missing_information, **kwargs):
         self.calls += 1
         return ApiLookupResult(documents=[DOC], status='used')
 
@@ -55,10 +55,31 @@ def request(**changes):
 
 
 class GraphTests(unittest.IsolatedAsyncioTestCase):
+    async def test_api_review_cannot_silently_drop_rag_candidate(self):
+        class ChangingReasoner(Reasoner):
+            async def review(self, payload):
+                after_api = any(doc['origin'] == 'policy_api' for doc in payload['documents'])
+                return EvidenceDecision(sufficient=True, usable_ids=['A1'] if after_api else ['V1', 'V2'],
+                                        missing_information=['모집 여부'], reason='정책 개요')
+            async def compare(self, payload):
+                after_api = any(doc['origin'] == 'policy_api' for doc in payload['documents'])
+                policies = [PolicyMatch(policy_name='인턴', status='candidate', reason='연령 부합',
+                                        missing_fields=[], evidence_ids=['V1'])]
+                if not after_api:
+                    policies.append(PolicyMatch(policy_name='청년수당', status='candidate', reason='미취업 조건 부합',
+                                                missing_fields=[], evidence_ids=['V2']))
+                return ComparisonResult(policies=policies, follow_up_question='')
+        docs = [DOC, Document(page_content='청년수당 지원 내용', metadata=DOC.metadata)]
+        agent = Agent()
+        result = await PolicyRagService(Retriever(docs), ChangingReasoner(), agent).answer_question(request())
+        self.assertEqual({p.policy_name for p in result.policies}, {'인턴', '청년수당'})
+        self.assertEqual(agent.calls, 1)
+        self.assertEqual(next(p for p in result.policies if p.policy_name == '청년수당').status, 'needs_review')
+
     async def test_failed_supplement_preserves_rag_answer_and_policy_query(self):
         class FailedAgent:
             calls = 0
-            async def lookup(self, query, missing_information):
+            async def lookup(self, query, missing_information, **kwargs):
                 self.calls += 1
                 self.query = query
                 return ApiLookupResult(status='failed')
@@ -180,7 +201,7 @@ class GraphTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_no_evidence_still_refuses_and_has_no_citations(self):
         class EmptyAgent:
-            async def lookup(self, *args): return ApiLookupResult(documents=[], status='no_results')
+            async def lookup(self, *args, **kwargs): return ApiLookupResult(documents=[], status='no_results')
         result = await PolicyRagService(Retriever([]), Reasoner(), EmptyAgent()).answer_question(request())
         self.assertEqual(result.status, 'insufficient')
         self.assertFalse(result.citations)
@@ -191,7 +212,7 @@ class GraphTests(unittest.IsolatedAsyncioTestCase):
             async def review(self, payload):
                 return EvidenceDecision(sufficient=False, usable_ids=[], missing_information=['관련 본문'], reason='무관')
         class EmptyAgent:
-            async def lookup(self, *args): return ApiLookupResult(documents=[], status='no_results')
+            async def lookup(self, *args, **kwargs): return ApiLookupResult(documents=[], status='no_results')
         result = await PolicyRagService(Retriever([DOC]), IrrelevantReasoner(), EmptyAgent()).answer_question(request())
         self.assertEqual(result.status, 'insufficient')
         self.assertFalse(result.citations)

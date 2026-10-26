@@ -67,10 +67,28 @@ class PolicyAgentTests(unittest.IsolatedAsyncioTestCase):
 
 
 class GraphAdapterTests(unittest.IsolatedAsyncioTestCase):
+    async def test_empty_name_search_falls_back_and_filters_other_regions(self):
+        from app.agents.policy_agent import GraphPolicyAgent
+        class Stub:
+            def __init__(self): self.queries = []
+            async def lookup(self, keyword, **kwargs):
+                self.queries.append(keyword)
+                policies = [] if keyword != '취업' else [
+                    {'plcyNo': 'seoul', 'plcyNm': '서울 취업', 'zipCd': '11110'},
+                    {'plcyNo': 'busan', 'plcyNm': '부산 취업', 'zipCd': '26110'},
+                    {'plcyNo': 'national', 'plcyNm': '전국 취업', 'zipCd': '00000'},
+                ]
+                return {'policies': policies}
+            async def get_detail(self, policy_no): return {'policies': []}
+        stub = Stub()
+        result = await GraphPolicyAgent(stub).lookup('과거 정책명', [], region='서울', fallback_keywords=['취업'])
+        self.assertEqual(stub.queries, ['과거 정책명', '서울 취업', '취업'])
+        self.assertEqual({doc.metadata['policy_id'] for doc in result.documents}, {'seoul', 'national'})
+
     async def test_detail_period_and_actual_reference_url_are_preserved(self):
         from app.agents.policy_agent import GraphPolicyAgent
         class Stub:
-            async def lookup(self, keyword):
+            async def lookup(self, keyword, **kwargs):
                 return {'policies': [{'plcyNo': 'p1', 'plcyNm': '서울 청년수당'}]}
             async def get_detail(self, policy_no):
                 self.requested = policy_no

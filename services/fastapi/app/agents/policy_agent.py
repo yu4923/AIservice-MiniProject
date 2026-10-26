@@ -5,6 +5,25 @@ This module queries official policy data; LLM tool selection is not implemented 
 from app.tools.youth_policy_api import YouthPolicyAPI
 
 
+REGION_PREFIXES = {
+    "서울": {"11"}, "부산": {"26"}, "대구": {"27"}, "인천": {"28"},
+    "광주": {"29"}, "대전": {"30"}, "울산": {"31"}, "세종": {"36"},
+    "경기": {"41"}, "강원": {"42", "51"}, "충북": {"43"}, "충남": {"44"},
+    "전북": {"45", "52"}, "전남": {"46"}, "경북": {"47"}, "경남": {"48"}, "제주": {"50"},
+}
+
+
+def matches_region(policy: dict, region: str | None) -> bool:
+    # 등록기관 주소가 아닌 API의 대상 지역코드를 사용한다. 미기재는 검토 근거로 남긴다.
+    codes = [code.strip() for code in str(policy.get("zipCd") or "").split(",") if code.strip()]
+    prefixes = REGION_PREFIXES.get(region)
+    if not prefixes or not codes or "00000" in codes:
+        return True
+    if any(len(code) != 5 or not code.isdigit() for code in codes):
+        return True
+    return any(code[:2] in prefixes for code in codes)
+
+
 class PolicyAgent:
     def __init__(self, api: YouthPolicyAPI | None = None):
         self.api = api if api is not None else YouthPolicyAPI()
@@ -28,7 +47,8 @@ class GraphPolicyAgent:
         self.configured = agent is not None or bool((os.getenv("YOUTH_POLICY_API_KEY") or "").strip())
         self.agent = agent
 
-    async def lookup(self, query: str, missing_information: list[str]):
+    async def lookup(self, query: str, missing_information: list[str], *,
+                     region: str | None = None, fallback_keywords: list[str] | None = None):
         import json
         import asyncio
         from urllib.parse import urlsplit
@@ -42,9 +62,24 @@ class GraphPolicyAgent:
         try:
             # Graph sends up to three interest keywords, not the full private profile.
             keywords = list(dict.fromkeys(k.strip() for k in query.split(",") if k.strip()))[:3]
+            async def search(keyword):
+                # 지역 필터 없는 목록도 조회해 전국 정책을 누락하지 않는다.
+                result = await self.agent.lookup(keyword, page_size=100)
+                return [policy for policy in result["policies"] if matches_region(policy, region)]
+
+            candidates = []
             for keyword in keywords:
-                result = await self.agent.lookup(keyword)
-                for policy in result["policies"]:
+                candidates.extend(await search(keyword))
+            if not candidates:
+                for keyword in list(dict.fromkeys(fallback_keywords or []))[:3]:
+                    if not keyword.strip():
+                        continue
+                    # 지역명+키워드를 우선 조회하고 전국 대상도 찾을 수 있도록 핵심어로 보완한다.
+                    local = await search(f"{region} {keyword}" if region else keyword)
+                    candidates.extend(local)
+                    if not local and keyword not in keywords:
+                        candidates.extend(await search(keyword))
+            for policy in candidates:
                     identifier = str(policy.get("plcyNo") or json.dumps(policy, sort_keys=True, ensure_ascii=False))
                     if identifier in seen:
                         continue
@@ -70,6 +105,7 @@ class GraphPolicyAgent:
                                   "title": str(policy.get("plcyNm") or "청년정책"),
                                   "policy_name": str(policy.get("plcyNm") or ""),
                                   "policy_id": str(policy.get("plcyNo") or ""),
+                                  "target_region_codes": str(policy.get("zipCd") or ""),
                                   "application_period": str(policy.get("aplyYmd") or ""),
                                   "last_modified": str(policy.get("lastMdfcnDt") or "")}))
                     if len(documents) >= 10:

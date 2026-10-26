@@ -85,7 +85,8 @@ class ApiLookupResult:
 # [Agent 담당자와의 연결 약속]
 # 검색어와 부족한 정책 정보를 받고, 보완한 문서와 처리 상태를 돌려주세요.
 class PolicySupplementer(Protocol):
-    async def lookup(self, query: str, missing_information: list[str]) -> ApiLookupResult: ...
+    async def lookup(self, query: str, missing_information: list[str], *,
+                     region: str | None = None, fallback_keywords: list[str] | None = None) -> ApiLookupResult: ...
 
 
 # [미연결 상태를 명시하는 대체 객체: 실제 Agent가 아님]
@@ -94,5 +95,6 @@ class PolicySupplementer(Protocol):
 class UnconfiguredPolicyAgent:
     configured = False
 
-    async def lookup(self, query: str, missing_information: list[str]) -> ApiLookupResult:
+    async def lookup(self, query: str, missing_information: list[str], *,
+                     region: str | None = None, fallback_keywords: list[str] | None = None) -> ApiLookupResult:
         return ApiLookupResult()

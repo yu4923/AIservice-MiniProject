@@ -104,6 +104,7 @@ class PolicyState(TypedDict, total=False):
     documents: list[Evidence]
     review: EvidenceDecision
     comparison: ComparisonResult
+    rag_candidates: ComparisonResult
     answer: str
     cited_ids: list[str]
     api_status: str
