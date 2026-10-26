@@ -1,6 +1,8 @@
 """검색 서비스의 FastAPI 진입점입니다. 백업의 Graph 호출 부분을 복원했습니다."""
 
 import os
+import json
+import logging
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -11,6 +13,7 @@ SERVICE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(SERVICE_DIR / ".env", override=False)
 
 from app.auth import FRONTEND_ORIGIN, get_current_user                  #JWT_code: 요청별 JWT 검증과 보관 기능을 사용한다.
+from app.observability import request_id_context
 
 from app.graph.nodes import LLMReasoner
 from app.graph.state import AnswerResponse
@@ -59,17 +62,25 @@ def create_app(service: PolicyRagService | None = None, *, api_agent=None, initi
         request: RAGRequest, response: Response, _user=Depends(get_current_user),
     ):
         """#JWT_code: JWT를 검증한 요청의 질문과 profile만 기존 처리부에 전달한다."""
+        request_id = response.headers.get("X-Request-Id", "unavailable")
+        context_token = request_id_context.set(request_id)
         try:
             return await application.state.policy_service.answer_question(request)
         except HTTPException:
             raise                                                       #JWT_code: 인증 모듈이 정한 상태와 추적 헤더를 보존한다.
-        except Exception:
+        except Exception as error:
+            logging.getLogger("uvicorn.error").error(json.dumps({
+                "event": "search_failed", "request_id": request_id,
+                "error_type": type(error).__name__, "status": 503,
+            }))
             # API 키·질문·소득·외부 서비스 오류 원문을 사용자 응답에 노출하지 않습니다.
             raise HTTPException(
                 status_code=503,
                 headers={"X-Request-Id": response.headers.get("X-Request-Id", "unavailable")},  #JWT_code: 실패 응답도 인증 로그와 대조할 수 있게 한다.
                 detail="정책 검색 또는 모델 처리에 실패했습니다. 설정과 서비스 상태를 확인해 주세요.",
             ) from None
+        finally:
+            request_id_context.reset(context_token)
 
     @application.get("/health", tags=["상태"])
     def health():

@@ -13,6 +13,7 @@ from langgraph.graph import END, START, StateGraph
 from app.graph.nodes import PolicyNodes, Reasoner, Retriever
 from app.graph.state import AnswerResponse, Citation, PolicyState, RAGRequest
 from app.agents.policy_agent import GraphPolicyAgent
+from app.observability import graph_trace_config
 
 
 def display_references(text: str, citations: list[Citation]) -> str:
@@ -77,7 +78,7 @@ class PolicyRagService(PolicyNodes):
         state = await asyncio.wait_for(self.graph.ainvoke({
             "request": request, "reference_date": datetime.now(ZoneInfo("Asia/Seoul")).date().isoformat(),
             "api_status": "not_used", "node_path": [],
-        }, config={"recursion_limit": 16}), timeout=150)
+        }, config=graph_trace_config(request.is_chat)), timeout=150)
         cited = set(state.get("cited_ids", []))
         citations = []
         for doc in state.get("documents", []):
