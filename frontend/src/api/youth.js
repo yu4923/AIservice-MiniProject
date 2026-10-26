@@ -63,7 +63,7 @@ function validateArray(value,min,max,allowed,label){
 }
 export function buildSearchProfile(profile) {
   if(!profile||typeof profile!=='object'||Array.isArray(profile))throw new Error('설문 정보를 먼저 입력해 주세요.')
-  if(!Number.isInteger(profile.age)||profile.age<0||profile.age>120)throw new Error('만 나이는 0~120 사이의 정수로 입력해 주세요.')
+  if(!Number.isInteger(profile.age)||profile.age<12||profile.age>49)throw new Error('만 나이는 12~49 사이의 정수로 입력해 주세요.')
   if(!regions.includes(profile.region))throw new Error('거주 지역을 선택해 주세요.')
   validateArray(profile.statuses,1,5,statusValues,'현재 상황')
   if(profile.statuses.includes('none')&&profile.statuses.length!==1)throw new Error('해당 없음은 단독으로 선택해 주세요.')

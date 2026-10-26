@@ -16,6 +16,30 @@ from app.agents.policy_agent import GraphPolicyAgent
 from app.observability import graph_trace_config
 
 
+def suggested_questions(policies, question: str, status: str) -> list[str]:
+    """확인된 정책 필드로 답할 수 있는 심화 질문만 제안한다."""
+    if status != "answered":
+        return []
+    supported = [p for p in policies if p.evidence_ids and p.status != "not_eligible"]
+    benefits = [p for p in supported if p.benefit and p.benefit.strip()]
+    suggestions = []
+    if len(benefits) >= 2:
+        names = '와 '.join(p.policy_name for p in benefits[:2])
+        suggestions.append(f"{names}의 확인된 지원 내용을 비교하고, 관심 분야에 더 맞는 정책을 설명해줘")
+    if len(supported) >= 2 and all(p.reason.strip() for p in supported):
+        names = ', '.join(p.policy_name for p in supported[:3])
+        suggestions.append(f"{names} 중 확인된 조건과 입력한 조건을 기준으로 검토할 우선순위와 이유를 알려줘. 미확인 조건은 구분해줘")
+    for policy in supported:
+        if policy.checks or policy.missing_fields:
+            suggestions.append(f"{policy.policy_name}에서 확인된 조건과 아직 모르는 조건을 나누고, 먼저 확인할 항목의 순서를 정리해줘")
+    for policy in supported:
+        if policy.benefit and policy.benefit.strip():
+            suggestions.append(f"{policy.policy_name}의 확인된 지원 내용이 관심 분야에 어떻게 도움이 되는지 구체적으로 설명해줘")
+        if policy.application_period and policy.application_period.display.strip():
+            suggestions.append(f"{policy.policy_name}에 명시된 신청 기간을 기준으로 일정을 정리해줘. 현재 모집 여부가 불명확하면 구분해줘")
+    return [text for text in dict.fromkeys(suggestions) if text != question][:3]
+
+
 def display_references(text: str, citations: list[Citation]) -> str:
     """사용자용 문장의 내부 근거 ID를 읽을 수 있는 출처명으로 바꾼다."""
     labels = {citation.evidence_id: citation.display or citation.title for citation in citations}
@@ -114,6 +138,7 @@ class PolicyRagService(PolicyNodes):
             policies=policies, missing_fields=list(dict.fromkeys(
                 state.get("missing_fields", []) + [field for policy in policies for field in policy.missing_fields])),
             follow_up_question=display_references(state.get("follow_up_question", ""), citations),
+            follow_up_questions=suggested_questions(policies, request.question, state["status"]),
             needs_review=(state["status"] != "answered"
                           or not state.get("review", None)
                           or not state["review"].application_status_verified

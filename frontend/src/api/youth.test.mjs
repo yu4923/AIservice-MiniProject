@@ -161,7 +161,8 @@ test('normalizes optional text and keeps exact detail spacing', () => {
 for (const [label, values] of [
   ['string age', { age: '25' }],
   ['fractional age', { age: 25.5 }],
-  ['age over 120', { age: 121 }],
+  ['age below 12', { age: 11 }],
+  ['age over 49', { age: 50 }],
   ['unknown region', { region: '울산광역시' }],
   ['empty statuses', { statuses: [] }],
   ['exclusive none', { statuses: ['none', 'student'] }],
@@ -200,4 +201,8 @@ test('server failures, timeouts and invalid responses show a retry message', asy
   }
   globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError('Invalid JSON') } })
   await assert.rejects(api.ask('필요한 서류는?', profile()), { message })
+})
+
+ test('accepts both survey age boundaries', () => {
+  for (const age of [12, 49]) assert.equal(api.buildSearchProfile({ ...profile(), age }).age, age)
 })

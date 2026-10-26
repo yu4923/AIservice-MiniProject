@@ -76,10 +76,10 @@ function restoreSurvey(id){
 watch(profile,value=>{try{saveProfile(sessionStorage,loginId.value,value)}catch{}},{deep:true,flush:'sync'})
 
 const ageWheel=ref(null)
-const ages=Array.from({length:121},(_,i)=>120-i)
-function selectAge(age){profile.value.age=age;const wheel=ageWheel.value;if(wheel)wheel.scrollTo({top:(120-age)*wheel.clientHeight/3,behavior:'smooth'})}
-function scrollAge(event){const wheel=event.target;profile.value.age=Math.max(0,Math.min(120,120-Math.round(wheel.scrollTop/(wheel.clientHeight/3))))}
-watch([step,ageWheel],async()=>{await nextTick();const wheel=ageWheel.value;if(step.value===1&&wheel)wheel.scrollTop=(120-profile.value.age)*wheel.clientHeight/3},{flush:'post'})
+const ages=Array.from({length:38},(_,i)=>49-i)
+function selectAge(age){profile.value.age=Math.max(12,Math.min(49,age));const wheel=ageWheel.value;if(wheel)wheel.scrollTo({top:(49-profile.value.age)*wheel.clientHeight/3,behavior:'smooth'})}
+function scrollAge(event){const wheel=event.target;profile.value.age=Math.max(12,Math.min(49,49-Math.round(wheel.scrollTop/(wheel.clientHeight/3))))}
+watch([step,ageWheel],async()=>{await nextTick();const wheel=ageWheel.value;if(step.value===1&&wheel)wheel.scrollTop=(49-profile.value.age)*wheel.clientHeight/3},{flush:'post'})
 const vReveal={mounted(el){
  if(matchMedia('(prefers-reduced-motion: reduce)').matches||!('IntersectionObserver' in window))return
  const category=el.matches('.category-row')
@@ -115,15 +115,15 @@ const vOrbMotion={mounted(el){
  el._orbCleanup=()=>{observer.disconnect();document.removeEventListener('visibilitychange',update)}
 },unmounted(el){el._orbCleanup?.()}}
 const titles=['현재 만 나이를 알려주세요','현재 어디에 거주하고 있나요?','현재 어떤 상황에 해당하나요?','어떤 지원이 가장 필요한가요?','어떤 도움이 필요한지 조금 더 알려주세요!']
-const descriptions=['정책마다 지원 가능한 나이가 달라요.','주민등록상 거주 지역을 선택해 주세요.','나의 상황과 관련된 정책을 찾아드릴게요.\n해당 항목을 모두 체크해 주세요.','관심 있는 분야를 모두 선택해 주세요.','관심 있는 지원을 모두 선택해 주세요.\n아직 정하지 못했다면 건너뛰어도 괜찮아요.']
+const descriptions=['정책마다 지원 가능한 나이가 달라요.','주민등록상 거주 지역을 선택해 주세요.','선택한 조건과 관련된 정책을 찾아드립니다.\n해당 항목을 모두 체크해 주세요.','관심 있는 분야를 모두 선택해 주세요.','관심 있는 지원을 모두 선택해 주세요.\n아직 정하지 못했다면 건너뛰어도 괜찮아요.']
 const statuses=[{id:'student',label:'재학 중',sub:'대학교'},{id:'employed',label:'재직 중',sub:'회사'},{id:'unemployed',label:'구직·취업\n준비 중'},{id:'self_employed',label:'자영업·사업\n운영 중'},{id:'freelance',label:'프리랜서\n아르바이트'},{id:'none',label:'해당 사항\n없음'}]
 const interests=[{id:'employment',label:'취업 지원',icon:'802fe.svg'},{id:'housing',label:'주거 지원',icon:'43370.svg'},{id:'education',label:'교육 지원',icon:'d0fce.svg'},{id:'startup',label:'창업 지원',icon:'fa6c2.svg'},{id:'unknown',label:'아직\n모르겠어요'}]
 const detailOptions=[{label:'취업 준비 비용',icon:'93ff2.svg'},{label:'면접 지원',icon:'cb119.svg'},{label:'일 경험·인턴',icon:'da826.svg'},{label:'직무 교육',icon:'ffae8.svg'}]
-const categories=[{id:'employment',title:'취업 지원',number:'01',image:'6871f.png',description:'취업 준비에 필요한 비용부터 직무 경험까지,\n새로운 시작을 돕는 정책을 찾아보세요.'},{id:'housing',title:'주거 지원',number:'02',image:'f8359.png',description:'월세와 주거비 등, 안정적인 생활에\n도움이 되는 정책을 살펴보세요.'},{id:'education',title:'교육 지원',number:'03',image:'f44b3.png',description:'배우고 싶은 분야와 키우고 싶은 역량,\n나의 성장을 위한 교육 기회를 찾아보세요.'},{id:'startup',title:'창업 지원',number:'04',image:'fd6ab.png',description:'아이디어를 사업으로 이어가는 과정,\n창업 준비에 필요한 지원을 확인해 보세요.'}]
+const categories=[{id:'employment',title:'취업 지원',number:'01',image:'6871f.png',description:'취업 준비에 필요한 비용부터 직무 경험까지,\n새로운 시작을 돕는 정책을 찾아보세요.'},{id:'housing',title:'주거 지원',number:'02',image:'f8359.png',description:'월세와 주거비 등, 안정적인 생활에\n도움이 되는 정책을 살펴보세요.'},{id:'education',title:'교육 지원',number:'03',image:'f44b3.png',description:'배우고 싶은 분야와 키우고 싶은 역량,\n성장을 위한 교육 기회를 찾아보세요.'},{id:'startup',title:'창업 지원',number:'04',image:'fd6ab.png',description:'아이디어를 사업으로 이어가는 과정,\n창업 준비에 필요한 지원을 확인해 보세요.'}]
 const examples=[['월세를 내고 있는데, 주거비 지원을 받을 수 있나요?','청년 대상 월세·주거비 지원정책을 찾아볼 수 있어요. 거주지역과 나이, 소득 등 조건에 따라 대상이 달라져요.'],['자격증 시험 응시료를 지원받을 수 있나요?','지원하는 시험과 신청 조건은 공고마다 달라요. 거주지역과 응시하려는 시험을 알려주세요.'],['이 정책을 신청하려면 어떤 서류가 필요한가요?','궁금한 정책을 선택해 주시면 공식 공고를 바탕으로 준비 서류와 제출 방법을 안내해 드릴게요.'],['취업 준비 중인데 어떤 지원을 찾아볼 수 있나요?','취업 준비 비용, 면접 지원, 직무교육, 일 경험 관련 정책을 찾아볼 수 있어요.']]
 function start(){go(user.value?'/survey/1':'/login')}
 function toggle(field,id,exclusive){const arr=profile.value[field];profile.value[field]=arr.includes(id)?arr.filter(x=>x!==id):id===exclusive?[id]:[...arr.filter(x=>x!==exclusive),id];if(field==='interests')profile.value.details=[]}
-const stepValid=computed(()=>[Number.isInteger(Number(profile.value.age))&&Number(profile.value.age)>=0&&Number(profile.value.age)<=120,regions.includes(profile.value.region),profile.value.statuses.length>0,profile.value.interests.length>0,true][step.value-1])
+const stepValid=computed(()=>[Number.isInteger(Number(profile.value.age))&&Number(profile.value.age)>=12&&Number(profile.value.age)<=49,regions.includes(profile.value.region),profile.value.statuses.length>0,profile.value.interests.length>0,true][step.value-1])
 async function submitAuth(){
  if(busy.value)return
  authEpoch++
@@ -182,16 +182,10 @@ const selectedPolicy=ref(null)
 const voiceNotice=ref('')
 const followupQuestions=computed(()=>{
  const latest=messages.value[messages.value.length-1]
- const policy=latest?.policies?.[0]||policies.value[0]
- const name=policy?.policy_name||policy?.name
- const region=profile.value.region
- const labels={employment:'취업',housing:'주거',education:'교육',startup:'창업'}
- const interest=profile.value.interests.map(id=>labels[id]).filter(Boolean).join('·')||'청년'
- return [
-  name?`${name}의 신청 조건을 자세히 알려줘`:`${region?region+'에서 ':''}내 조건에 맞는 ${interest} 지원을 알려줘`,
-  name?`${name} 신청에 필요한 서류와 절차를 알려줘`:'추천한 정책의 신청 서류와 절차를 알려줘',
-  '추천한 정책 중 내 상황에서 먼저 확인하면 좋을 것을 비교해줘'
- ]
+ const response=latest||result.value
+ if(!response||response.pending||response.error)return []
+ return Array.isArray(response.follow_up_questions)
+  ?response.follow_up_questions.filter(q=>typeof q==='string'&&q.trim()).slice(0,3):[]
 })
 let restoringHistory=false
 function restoreChat(id){
@@ -322,13 +316,13 @@ watch(route,()=>{error.value='';showPassword.value=false})
   <main v-if="surveyPage" id="main" class="survey-page">
    <img class="survey-glow glow-one" src="/figma/f58fd.svg" alt=""><img class="survey-glow glow-two" src="/figma/f58fd.svg" alt="">
    <section class="survey-content"><span class="step-badge">STEP 0{{step}}</span><h1>{{titles[step-1]}} <small>{{step}} / 5</small></h1><p class="survey-description">{{descriptions[step-1]}}</p>
-    <div v-if="step===1" class="age-picker age-picker-wheel"><span>만</span><div ref="ageWheel" class="age-wheel" role="spinbutton" aria-label="만 나이 · 위아래로 스크롤하거나 방향키로 선택" tabindex="0" :aria-valuenow="profile.age" :aria-valuemin="0" :aria-valuemax="120" @scroll="scrollAge" @keydown.up.prevent="selectAge(Math.min(120,profile.age+1))" @keydown.down.prevent="selectAge(Math.max(0,profile.age-1))" @keydown.home.prevent="selectAge(120)" @keydown.end.prevent="selectAge(0)"><button v-for="age in ages" :key="age" tabindex="-1" :class="{active:profile.age===age}" @click="selectAge(age)">{{age}}</button></div><span>세</span></div>
+    <div v-if="step===1" class="age-picker age-picker-wheel"><span>만</span><div ref="ageWheel" class="age-wheel" role="spinbutton" aria-label="만 나이 · 위아래로 스크롤하거나 방향키로 선택" tabindex="0" :aria-valuenow="profile.age" :aria-valuemin="12" :aria-valuemax="49" @scroll="scrollAge" @keydown.up.prevent="selectAge(Math.min(49,profile.age+1))" @keydown.down.prevent="selectAge(Math.max(12,profile.age-1))" @keydown.home.prevent="selectAge(49)" @keydown.end.prevent="selectAge(12)"><button v-for="age in ages" :key="age" tabindex="-1" :class="{active:profile.age===age}" @click="selectAge(age)">{{age}}</button></div><span>세</span></div>
     <div v-else-if="step===2" class="region-fields region-single"><label for="region">지역</label><select id="region" v-model="profile.region" required><option disabled value="">거주지역을 선택해 주세요</option><option v-for="region in regions" :key="region" :value="region">{{region}}</option></select></div>
     <div v-else-if="step===3" class="choice-grid"><button v-for="item in statuses" :key="item.id" type="button" class="choice-card" :class="{selected:profile.statuses.includes(item.id)}" :aria-pressed="profile.statuses.includes(item.id)" @click="toggle('statuses',item.id,'none')"><small v-if="item.sub">{{item.sub}}</small><strong>{{item.label}}</strong></button></div>
     <div v-else-if="step===4" class="choice-grid interests-grid"><button v-for="item in interests" :key="item.id" class="choice-card" :class="{selected:profile.interests.includes(item.id)}" :aria-pressed="profile.interests.includes(item.id)" @click="toggle('interests',item.id,'unknown')"><img v-if="item.icon" :src="'/figma/'+item.icon" alt=""><strong>{{item.label}}</strong></button></div>
     <div v-else class="choice-grid detail-grid"><button v-for="item in detailOptions" :key="item.label" class="choice-card" :class="{selected:profile.details.includes(item.label)}" :aria-pressed="profile.details.includes(item.label)" @click="toggle('details',item.label)"><img v-if="item.icon" :src="'/figma/'+item.icon" alt=""><strong>{{item.label}}</strong></button></div>
    </section>
-   <nav class="survey-navigation" aria-label="설문 단계"><button v-if="step>1" class="pill" @click="go('/survey/'+(step-1))"><span>←</span> 이전</button><button v-else class="text-button" @click="go('/home')">← 홈으로</button><div><button class="pill" :disabled="!stepValid" @click="next">{{step===5?'내 맞춤 정책 보기':'다음'}} <span>→</span></button><button v-if="step===5" class="skip-survey" @click="profile.details=[];finish()">건너뛰고 검색하기</button></div></nav>
+   <nav class="survey-navigation" aria-label="설문 단계"><button v-if="step>1" class="pill" @click="go('/survey/'+(step-1))"><span>←</span> 이전</button><button v-else class="text-button" @click="go('/home')">← 홈으로</button><div><button class="pill" :disabled="!stepValid" @click="next">{{step===5?'맞춤 정책 보기':'다음'}} <span>→</span></button><button v-if="step===5" class="skip-survey" @click="profile.details=[];finish()">건너뛰고 검색하기</button></div></nav>
   </main>
   <main v-else-if="route==='/chat'" id="main" class="ai-conversation" data-node-id="18:1111">
    <div v-if="restoringChat" class="chat-restore" role="status" aria-label="대화를 불러오는 중">
@@ -352,33 +346,33 @@ watch(route,()=>{error.value='';showPassword.value=false})
    </form>
    <section v-if="searchBusy||searchError||result" id="personal-recommendation" class="ai-messages personal-recommendation" aria-live="polite"><AiResponse :loading="searchBusy" :text="result?.answer||''"><p v-if="searchError" class="error" role="alert">{{searchError}} <button type="button" class="text-button" @click="search">다시 시도</button></p><article v-if="result?.answer"><p class="answer-text">{{result.answer}}</p><ul v-if="result.sources?.length" class="sources"><li v-for="(s,i) in result.sources" :key="i"><a v-if="sourceUrl(s)" :href="sourceUrl(s)" target="_blank" rel="noopener noreferrer">{{sourceText(s)}}</a><span v-else>{{sourceText(s)}}</span></li></ul></article><article v-for="(policy,i) in policies" :key="policy.policy_id||i"><h2>{{policy.name}}</h2><p>{{policy.recommendation_reason}}</p><p>{{policy.benefit}}</p></article><p v-if="result&&!needsProfile&&!result.answer&&!policies.length">검색 응답을 받았어요. 표시할 정책이 없거나 응답 형식 확인이 필요해요.</p></AiResponse></section>
    <section v-if="messages.length||chatBusy" class="ai-messages" aria-label="AI 대화 내역" aria-live="polite"><article v-for="(m,i) in messages" :key="i"><p class="user-question">{{m.question}}</p><AiResponse :text="m.answer" :loading="m.pending"><MarkdownAnswer v-if="m.answer" :text="m.answer" /><p v-if="m.error" class="error" role="alert">{{m.error}}</p><ul v-if="m.sources?.length" class="sources"><li v-for="(s,j) in m.sources" :key="j"><a v-if="sourceUrl(s)" :href="sourceUrl(s)" target="_blank" rel="noopener noreferrer">{{sourceText(s)}}</a><span v-else>{{sourceText(s)}}</span></li></ul></AiResponse></article></section>
-   <nav v-if="!restoringChat&&!chatBusy&&!searchBusy&&(result||messages.length)" class="followup-questions" aria-label="맞춤 후속 질문"><button v-for="q in followupQuestions" :key="q" type="button" @click="sendQuestion(q)">{{q}}</button></nav>
-   <button v-if="result && !restoringChat" class="recommend-jump" type="button" @click="jumpToRecommendation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z"/></svg>내 맞춤 추천 보기 <span aria-hidden="true">↑</span></button>
+   <nav v-if="!restoringChat&&!chatBusy&&!searchBusy&&followupQuestions.length" class="followup-questions" aria-label="맞춤 후속 질문"><button v-for="q in followupQuestions" :key="q" type="button" @click="sendQuestion(q)">{{q}}</button></nav>
+   <button v-if="result && !restoringChat" class="recommend-jump" type="button" @click="jumpToRecommendation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z"/></svg>추천 결과 보기 <span aria-hidden="true">↑</span></button>
    <form v-composer-size class="ai-composer" @submit.prevent="sendQuestion()"><label for="ai-question" class="sr-only">정책 질문</label><textarea id="ai-question" v-model="question" @keydown="onChatKeydown" placeholder="질문하거나 말하거나 파일을 보내세요." maxlength="1000" rows="2" :disabled="chatBusy"></textarea><div class="ai-composer-footer"><ChatAttachments class="ai-attachments" /><div class="ai-composer-actions"><button type="button" class="ai-mic" aria-label="음성 입력 안내" @click="voiceNotice='음성 대화는 백엔드의 STT·음성 API 연결 후 이용할 수 있어요.'"><img src="/figma/f1e12.svg" alt=""></button><button v-if="question.trim()" class="ai-send" type="submit" :disabled="chatBusy" :aria-label="chatBusy?'답변 작성 중':'질문 보내기'"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3.5 3.5L21 12L3.5 20.5L6.5 13L15 12L6.5 11L3.5 3.5Z" fill="currentColor"/></svg></button><button class="ai-talk" type="button" @click="voiceNotice='음성 대화는 백엔드의 STT·음성 API 연결 후 이용할 수 있어요.'">Youth Compass Ai와 말하기 <img src="/figma/220e0.svg" alt=""></button></div></div><p v-if="voiceNotice" class="ai-notice" role="status">{{voiceNotice}}</p><p v-if="chatError" class="error" role="alert">{{chatError}}</p></form>
   </main>
   <main v-else-if="route==='/search'" id="main" class="results-page">
    <template v-if="route==='/search'">
-   <div class="results-heading"><span class="step-badge">YOUR COMPASS</span><h1>{{user?.nickname||'청년'}}님을 위한 정책 후보</h1><p>내 상황에 맞는 지원, 근거와 함께 살펴보세요.</p><div class="profile-chips"><span>만 {{profile.age}}세</span><span>{{profile.region}}</span><span v-for="i in interests.filter(x=>profile.interests.includes(x.id))" :key="i.id">{{i.label}}</span><button @click="go('/survey/1')">조건 수정 ↗</button></div></div>
+   <div class="results-heading"><span class="step-badge">YOUR COMPASS</span><h1>조건에 맞는 정책 후보</h1><p>조건에 맞는 지원을 살펴보세요.</p><div class="profile-chips"><span>만 {{profile.age}}세</span><span>{{profile.region}}</span><span v-for="i in interests.filter(x=>profile.interests.includes(x.id))" :key="i.id">{{i.label}}</span><button @click="go('/survey/1')">조건 수정 ↗</button></div></div>
    <p v-if="demoMode" class="demo-banner">현재 데모 화면입니다. 아래 카드는 실제 정책 검색이 아닌 가상 예시예요.</p>
    <div class="source-control"><label>검색 자료 <select v-model="source"><option value="web">웹 정책 자료</option><option value="pdf">PDF 정책 자료</option></select></label><button class="text-button" :disabled="searchBusy" @click="search">다시 찾기 ↻</button></div>
    <p v-if="searchBusy" class="loading" role="status">관련 정책과 근거를 찾고 있어요…</p><p v-if="searchError" class="error" role="alert">{{searchError}} <button @click="search">다시 시도</button><a v-if="!user" href="/login">로그인하기</a></p>
    <div class="policy-grid"><article v-for="p in policies" :key="p.policy_id||p.name" class="policy-card"><span class="step-badge">{{p.demo?'가상 예시':'정책 후보'}}</span><h2>{{p.name}}</h2><p>{{p.recommendation_reason}}</p><div class="policy-benefit">{{p.benefit}}</div><small>{{p.application_period?.display||'신청 기간 확인 필요'}}</small><button class="outline-button" @click="selectedPolicy=p">상세보기 <span>↗</span></button></article></div>
    <section v-if="result" class="answer-panel"><h2>찾은 정책을 정리했어요</h2><p class="answer-text">{{result.answer}}</p><ul class="sources"><li v-for="(s,i) in result.sources||[]" :key="i"><a v-if="sourceUrl(s)" :href="sourceUrl(s)" target="_blank" rel="noopener noreferrer">{{sourceText(s)}} ↗</a><span v-else>{{sourceText(s)}}</span></li></ul><p v-if="!policies.length&&!result.sources?.length">확인 가능한 정책 근거가 없어요. 조건을 바꾸거나 다른 질문을 입력해 주세요.</p></section>
    </template>
-   <div v-if="route==='/chat'" class="results-heading"><h1>나에게 맞는 정책, AI와 함께 찾아보세요</h1><p>설문에서 선택한 조건을 바탕으로 질문해 보세요.</p><button class="text-button" @click="go('/survey/1')">설문 조건 수정하기 →</button><p v-if="demoMode" class="demo-banner">프론트엔드 체험 화면입니다. 실제 AI 응답은 백엔드 연결 후 제공돼요.</p></div>
+   <div v-if="route==='/chat'" class="results-heading"><h1>맞춤 정책을 AI와 함께 찾아보세요</h1><p>설문에서 선택한 조건을 바탕으로 질문해 보세요.</p><button class="text-button" @click="go('/survey/1')">설문 조건 수정하기 →</button><p v-if="demoMode" class="demo-banner">프론트엔드 체험 화면입니다. 실제 AI 응답은 백엔드 연결 후 제공돼요.</p></div>
    <section class="chat-panel"><img src="/figma/52188.png" alt="" class="chat-robot"><span class="step-badge">ASK AI</span><h2>궁금한 정책, 더 물어보세요.</h2><p>입력한 조건과 정책 자료를 바탕으로 답변해 드려요.</p><div class="suggested-questions"><button v-for="q in examples.slice(0,2)" :key="q[0]" @click="question=q[0]">{{q[0]}}</button></div><div v-for="(m,i) in messages" :key="i" class="chat-message"><p class="user-question">{{m.question}}</p><MarkdownAnswer v-if="m.answer" :text="m.answer" /><p v-if="m.error" class="error" role="alert">{{m.error}}</p><ul class="sources"><li v-for="(s,j) in m.sources||[]" :key="j"><a v-if="sourceUrl(s)" :href="sourceUrl(s)" target="_blank" rel="noopener noreferrer">{{sourceText(s)}} ↗</a><span v-else>{{sourceText(s)}}</span></li></ul><p v-if="m.needs_review||m.handoff" class="muted">세부 조건은 공식 공고 및 담당기관에서 확인해 주세요.</p></div><p v-if="chatBusy" role="status" class="loading">근거를 확인하며 답변을 작성하고 있어요…</p><p v-if="chatError" role="alert" class="error">{{chatError}}</p><form class="chat-input" @submit.prevent="sendQuestion()"><textarea v-model="question" aria-label="정책에 대한 질문" placeholder="정책에 대해 궁금한 점을 입력해 주세요" maxlength="1000" rows="2"></textarea><button class="pill" :disabled="chatBusy||!question.trim()">질문하기 ↑</button></form><p class="muted">음성 입력은 STT API 연결 후 제공할 예정이에요.</p></section>
    <p class="disclaimer">검색 결과는 정책 탐색을 돕기 위한 안내예요. 지원 자격과 신청 가능 여부는 공식 공고 및 담당기관에서 최종 확인해 주세요.</p>
   </main>
   <main v-else id="main" class="landing">
-   <section class="hero"><nav class="site-nav"><button class="home-nav-button" @click="go('/home')"><img src="/figma/0170c.svg" alt="" width="15.2" height="14.2">HOME</button><div><button @click="go('/categories')">정책 분야</button><button @click="go('/chat')">AI 튜터와 대화하기</button><button @click="showHow()">이용 방법</button><button v-if="!user" @click="go('/login')">로그인</button><button v-else @click="start">내 맞춤 정책</button></div></nav><img class="hero-logo" src="/figma/a7989.svg" alt="YOUTH COMPASS"><p>청년들을 위한 맞춤형 정책 검색 서비스</p><button class="hero-start" @click="start">내 맞춤 정책 찾기</button></section>
+   <section class="hero"><nav class="site-nav"><button class="home-nav-button" @click="go('/home')"><img src="/figma/0170c.svg" alt="" width="15.2" height="14.2">HOME</button><div><button @click="go('/categories')">정책 분야</button><button @click="go('/chat')">AI 튜터와 대화하기</button><button @click="showHow()">이용 방법</button><button v-if="!user" @click="go('/login')">로그인</button><button v-else @click="start">맞춤 정책</button></div></nav><img class="hero-logo" src="/figma/a7989.svg" alt="YOUTH COMPASS"><p>청년들을 위한 맞춤형 정책 검색 서비스</p><button class="hero-start" @click="start">맞춤 정책 찾기</button></section>
    <template v-if="route==='/categories'">
-    <section v-reveal class="category-intro"><h1>정책 분야</h1><div class="vertical-dots"><img src="/figma/c667a.svg" alt=""><img src="/figma/30e60.svg" alt=""><img src="/figma/144ad.svg" alt=""></div><h2>지금 나에게 필요한 지원은 무엇인가요?<br>관심 있는 분야부터 살펴보세요.</h2></section>
-    <section class="category-list"><article v-reveal v-for="c in categories" :key="c.id" class="category-row"><div><strong class="category-number">{{c.number}}</strong><h2>{{c.title}}</h2><p>{{c.description}}</p></div><img :src="'/figma/'+c.image" :alt="c.title+' 일러스트'"></article><button class="pill" @click="start">나에게 맞는 정책 확인하기 →</button></section>
+    <section v-reveal class="category-intro"><h1>정책 분야</h1><div class="vertical-dots"><img src="/figma/c667a.svg" alt=""><img src="/figma/30e60.svg" alt=""><img src="/figma/144ad.svg" alt=""></div><h2>지금 필요한 지원은 무엇인가요?<br>관심 있는 분야부터 살펴보세요.</h2></section>
+    <section class="category-list"><article v-reveal v-for="c in categories" :key="c.id" class="category-row"><div><strong class="category-number">{{c.number}}</strong><h2>{{c.title}}</h2><p>{{c.description}}</p></div><img :src="'/figma/'+c.image" :alt="c.title+' 일러스트'"></article><button class="pill" @click="start">맞춤 정책 확인하기 →</button></section>
    </template>
    <template v-else>
-    <section v-reveal class="landing-section first-section"><h1>나에게 맞는 청년정책, 헤매지 말고 찾아보세요.</h1><div class="vertical-dots"><img src="/figma/c667a.svg" alt=""><img src="/figma/30e60.svg" alt=""><img src="/figma/144ad.svg" alt=""></div><p>취업부터 주거, 교육, 창업까지<br>간단한 질문에 답하고 나와 관련된 지원정책을 확인해 보세요.</p><img class="landing-illustration approval" src="/figma/a897d.png" alt="정책 검색을 나타내는 상자와 엄지손가락"><button class="pill" @click="start">내 맞춤 정책 찾기 →</button><img class="star star-left" src="/figma/41de5.svg" alt=""><img class="star star-right" src="/figma/41de5.svg" alt=""></section>
+    <section v-reveal class="landing-section first-section"><h1>조건에 맞는 청년정책을 찾아보세요.</h1><div class="vertical-dots"><img src="/figma/c667a.svg" alt=""><img src="/figma/30e60.svg" alt=""><img src="/figma/144ad.svg" alt=""></div><p>취업부터 주거, 교육, 창업까지<br>간단한 질문에 답하고 입력한 조건과 관련된 지원정책을 확인해 보세요.</p><img class="landing-illustration approval" src="/figma/a897d.png" alt="정책 검색을 나타내는 상자와 엄지손가락"><button class="pill" @click="start">맞춤 정책 찾기 →</button><img class="star star-left" src="/figma/41de5.svg" alt=""><img class="star star-right" src="/figma/41de5.svg" alt=""></section>
     <section v-reveal id="how" class="landing-section ai-section"><h2>공고를 읽다가 궁금해졌다면, AI에게 물어보세요!</h2><div class="vertical-dots"><img src="/figma/c667a.svg" alt=""><img src="/figma/30e60.svg" alt=""><img src="/figma/144ad.svg" alt=""></div><p>지원 대상부터 신청 방법, 준비 서류까지.<br>찾은 정책 자료를 바탕으로 답변하고 근거와 출처를 함께 안내해요.</p><img class="landing-illustration robot" src="/figma/52188.png" alt="노트북을 사용하는 AI 로봇"><img class="star star-left" src="/figma/41de5.svg" alt=""></section>
-    <section class="example-section"><span class="sr-only">AI 상담 예시</span><div class="example-strips"><div v-for="(row,rowIndex) in exampleRows" :key="rowIndex" v-moving-strip class="example-strip" tabindex="0" role="region" :aria-label="`AI 상담 예시 ${rowIndex+1}번째 줄 · 왼쪽으로 흐르는 카드`"><div class="example-track"><div v-for="cycle in 2" :key="cycle" class="example-cycle" :aria-hidden="cycle===2"><article v-for="(i,cardIndex) in row" :key="cardIndex" :aria-hidden="cycle===2||cardIndex>=2"><img :src="'/figma/'+['e22b6.svg','b26c7.svg','7b7da.svg','e395f.svg'][i]" alt=""><div><h3>“{{examples[i][0]}}”</h3><p>{{examples[i][1]}}</p></div></article></div></div></div></div><button class="pill" @click="start">AI와 내 맞춤 정책 찾기 →</button><small>위 대화는 서비스 이용을 설명하는 예시입니다.</small></section>
+    <section class="example-section"><span class="sr-only">AI 상담 예시</span><div class="example-strips"><div v-for="(row,rowIndex) in exampleRows" :key="rowIndex" v-moving-strip class="example-strip" tabindex="0" role="region" :aria-label="`AI 상담 예시 ${rowIndex+1}번째 줄 · 왼쪽으로 흐르는 카드`"><div class="example-track"><div v-for="cycle in 2" :key="cycle" class="example-cycle" :aria-hidden="cycle===2"><article v-for="(i,cardIndex) in row" :key="cardIndex" :aria-hidden="cycle===2||cardIndex>=2"><img :src="'/figma/'+['e22b6.svg','b26c7.svg','7b7da.svg','e395f.svg'][i]" alt=""><div><h3>“{{examples[i][0]}}”</h3><p>{{examples[i][1]}}</p></div></article></div></div></div></div><button class="pill" @click="start">AI와 맞춤 정책 찾기 →</button><small>위 대화는 서비스 이용을 설명하는 예시입니다.</small></section>
    </template>
    <footer>Youth Compass는 정책 탐색을 돕는 서비스입니다.<br>지원 자격과 신청 가능 여부는 공식 공고 및 담당기관에서 최종 확인해 주세요.</footer>
   </main>
@@ -565,5 +559,59 @@ watch(route,()=>{error.value='';showPassword.value=false})
   .age-picker-wheel>span { padding-top:0; }
   .survey-page { min-height: calc(100svh - 62px); min-height: calc(100dvh - 62px); }
   .region-single { padding-top: 50px; }
+}
+
+/* 설문은 헤더를 제외한 화면 높이에 맞추고, 내용에 따라 카드와 여백을 줄인다. */
+.survey-page {
+  --survey-header:73px;
+  height:calc(100svh - var(--survey-header));
+  height:calc(100dvh - var(--survey-header));
+  min-height:0;
+  padding:clamp(12px,3dvh,32px) 5% clamp(12px,2dvh,24px);
+}
+.survey-content { flex:1; min-height:0; display:flex; flex-direction:column; align-items:center; }
+.survey-content .step-badge { flex-shrink:0; }
+.survey-content h1 { flex-shrink:0; margin:clamp(12px,3dvh,30px) auto clamp(8px,1.5dvh,16px); font-size:clamp(24px,4.5dvh,42px); }
+.survey-description { flex-shrink:0; margin-bottom:0; min-height:0; font-size:clamp(14px,2dvh,18px); }
+.survey-page .choice-grid {
+  flex:1; min-height:0; width:100%; max-width:812px;
+  display:grid; grid-template-columns:repeat(3,minmax(0,1fr));
+  grid-auto-rows:minmax(0,1fr); gap:clamp(8px,2dvh,24px);
+  margin:clamp(12px,3dvh,30px) auto 0;
+}
+.survey-page .detail-grid { max-width:1100px; grid-template-columns:repeat(4,minmax(0,1fr)); }
+.survey-page .choice-card { width:100%; min-height:0; padding:clamp(8px,1.5dvh,18px) 12px; gap:clamp(6px,1.5dvh,16px); }
+.survey-page .choice-card strong { font-size:clamp(18px,3.5dvh,32px); }
+.survey-page .choice-card small { font-size:clamp(12px,2dvh,18px); }
+.survey-page .choice-card img { width:clamp(28px,6dvh,54px); height:clamp(28px,6dvh,54px); }
+.survey-navigation { flex-shrink:0; margin-top:clamp(12px,2.5dvh,28px); align-items:center; }
+.survey-navigation .pill { min-height:48px; padding:12px 24px; }
+.survey-page .age-picker-wheel { flex:1; min-height:0; width:100%; padding-top:0; }
+.survey-page .age-wheel { --age-row:clamp(36px,calc((100dvh - 370px)/3),125px); height:calc(var(--age-row)*3); }
+.survey-page .age-wheel button { font-size:var(--age-row); }
+.survey-page .region-single { flex:1; min-height:0; width:100%; justify-content:center; padding-top:0; gap:12px; }
+.survey-page .region-single select { margin:0; }
+@media(max-width:700px) {
+  .survey-page { --survey-header:62px; padding-inline:20px; }
+  .survey-content h1 { font-size:clamp(20px,3.8dvh,25px); line-height:1.3; }
+  .survey-content h1 small { margin-top:4px; }
+  .survey-page .choice-grid,.survey-page .detail-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .survey-page .choice-card strong { font-size:clamp(16px,3dvh,23px); }
+  .survey-page .choice-card { border-radius:12px; }
+  .survey-navigation .pill { min-width:130px; font-size:14px; }
+  .survey-page .age-wheel { width:180px; }
+  .survey-page .skip-survey { margin-top:6px; }
+}
+@media(max-height:500px) {
+  .survey-content .step-badge { font-size:11px; padding:5px 12px; }
+  .survey-content h1 { margin-block:8px 4px; font-size:20px; }
+  .survey-description { font-size:12px; line-height:1.3; }
+  .survey-page .choice-grid { grid-template-columns:repeat(3,minmax(0,1fr)); margin-top:8px; gap:8px; }
+  .survey-page .detail-grid { grid-template-columns:repeat(4,minmax(0,1fr)); }
+  .survey-page .choice-card { padding:6px; gap:4px; }
+  .survey-page .choice-card strong { font-size:16px; }
+  .survey-page .choice-card img { width:24px; height:24px; }
+  .survey-navigation { margin-top:8px; }
+  .survey-navigation .pill { min-height:38px; padding:8px 16px; }
 }
 </style>

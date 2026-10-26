@@ -40,7 +40,7 @@ class UserProfile(BaseModel):
 
     # 문자열 나이와 boolean을 정수로 보정하지 않고 JSON 타입 그대로 검사한다.
     model_config = ConfigDict(extra="forbid", strict=True)
-    age: int = Field(ge=0, le=120)
+    age: int = Field(ge=12, le=49)
     region: str
     statuses: list[str] = Field(min_length=1, max_length=5)
     interests: list[str] = Field(min_length=1, max_length=4)

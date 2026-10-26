@@ -10,7 +10,7 @@ export function loadProfile(storage, owner) {
     const saved = JSON.parse(storage.getItem(KEY))
     if (!saved || saved.owner !== owner) { clearProfile(storage); return emptyProfile() }
     const p = saved.profile
-    if (!p || !Number.isInteger(p.age) || p.age < 0 || p.age > 120 ||
+    if (!p || !Number.isInteger(p.age) || p.age < 12 || p.age > 49 ||
         typeof p.region !== 'string' || p.region.length > 20 ||
         !['statuses','interests','details'].every(k => Array.isArray(p[k]) && p[k].length <= 13 && p[k].every(v => typeof v === 'string' && v.length <= 100)) ||
         !['income','employment_status'].every(k => p[k] === null || typeof p[k] === 'string' && p[k].length <= 200) ||
