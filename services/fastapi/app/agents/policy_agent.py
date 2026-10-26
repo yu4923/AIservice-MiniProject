@@ -49,8 +49,18 @@ class GraphPolicyAgent:
                     if identifier in seen:
                         continue
                     seen.add(identifier)
+                    if policy.get("plcyNo") and len(documents) < 3:
+                        try:
+                            detail = await self.agent.get_detail(str(policy["plcyNo"]))
+                            matching = [item for item in detail["policies"]
+                                        if str(item.get("plcyNo")) == str(policy["plcyNo"])]
+                            if matching:
+                                policy = {**policy, **{key: value for key, value in matching[0].items()
+                                                      if value is not None and value != ""}}
+                        except Exception:
+                            pass  # 상세 조회 실패 시 성공한 목록 응답은 유지한다.
                     source = API_URL
-                    for field in ("refUrl1", "refUrl2", "aplyUrlAddr"):
+                    for field in ("refUrlAddr1", "refUrlAddr2", "aplyUrlAddr"):
                         url = policy.get(field)
                         if isinstance(url, str) and urlsplit(url).scheme in {"http", "https"} and urlsplit(url).netloc:
                             source = url
@@ -58,7 +68,12 @@ class GraphPolicyAgent:
                     documents.append(Document(page_content=json.dumps(policy, ensure_ascii=False),
                         metadata={"source": source, "url": source,
                                   "title": str(policy.get("plcyNm") or "청년정책"),
-                                  "policy_id": str(policy.get("plcyNo") or "")}))
+                                  "policy_name": str(policy.get("plcyNm") or ""),
+                                  "policy_id": str(policy.get("plcyNo") or ""),
+                                  "application_period": str(policy.get("aplyYmd") or ""),
+                                  "last_modified": str(policy.get("lastMdfcnDt") or "")}))
+                    if len(documents) >= 10:
+                        return ApiLookupResult(documents=documents, status="used")
         except asyncio.TimeoutError:
             return ApiLookupResult(status="timeout")
         except Exception:

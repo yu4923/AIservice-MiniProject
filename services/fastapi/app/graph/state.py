@@ -41,6 +41,7 @@ class PolicyMatch(BaseModel):
     reason: str
     missing_fields: list[str]
     evidence_ids: list[str]
+    checks: list[str] = Field(default_factory=list, description="사용자가 확인할 미확인 자격·모집 사항을 한국어 문장으로 작성. missing_fields의 사용자 입력 필드명과 구분한다.")
     benefit: str | None = Field(default=None, description="근거 문서에서 확인된 지원 내용. 정보가 없으면 null.")
     application_period: ApplicationPeriod | None = Field(
         default=None, description="근거에서 확인된 신청·접수 기간. 정보가 없으면 null.")
@@ -62,6 +63,7 @@ class Citation(BaseModel):
     title: str
     page: int | None = None
     origin: Literal["vector_db", "policy_api"]
+    display: str = Field(default="", description="사용자에게 표시할 문서명과 페이지")
 
 
 class AnswerResponse(BaseModel):

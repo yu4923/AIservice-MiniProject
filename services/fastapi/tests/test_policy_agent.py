@@ -66,5 +66,23 @@ class PolicyAgentTests(unittest.IsolatedAsyncioTestCase):
                     await agent.lookup('월세', page_size=0)
 
 
+class GraphAdapterTests(unittest.IsolatedAsyncioTestCase):
+    async def test_detail_period_and_actual_reference_url_are_preserved(self):
+        from app.agents.policy_agent import GraphPolicyAgent
+        class Stub:
+            async def lookup(self, keyword):
+                return {'policies': [{'plcyNo': 'p1', 'plcyNm': '서울 청년수당'}]}
+            async def get_detail(self, policy_no):
+                self.requested = policy_no
+                return {'policies': [{'plcyNo': 'p1', 'aplyYmd': '20250301 ~ 20250331',
+                                     'refUrlAddr1': 'https://example.org/notice'}]}
+        stub = Stub()
+        result = await GraphPolicyAgent(stub).lookup('서울 청년수당', ['모집 기간'])
+        self.assertEqual(stub.requested, 'p1')
+        self.assertEqual(result.status, 'used')
+        self.assertEqual(result.documents[0].metadata['source'], 'https://example.org/notice')
+        self.assertEqual(result.documents[0].metadata['application_period'], '20250301 ~ 20250331')
+
+
 if __name__ == '__main__':
     unittest.main()

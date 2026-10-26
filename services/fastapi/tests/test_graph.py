@@ -55,6 +55,23 @@ def request(**changes):
 
 
 class GraphTests(unittest.IsolatedAsyncioTestCase):
+    async def test_failed_supplement_preserves_rag_answer_and_policy_query(self):
+        class FailedAgent:
+            calls = 0
+            async def lookup(self, query, missing_information):
+                self.calls += 1
+                self.query = query
+                return ApiLookupResult(status='failed')
+        agent = FailedAgent()
+        doc = Document(page_content=DOC.page_content, metadata={
+            **DOC.metadata, 'record_type': 'policy_evidence', 'title': '서울 청년수당'})
+        result = await PolicyRagService(Retriever([doc]), Reasoner(), agent).answer_question(request())
+        self.assertEqual(agent.calls, 1)
+        self.assertEqual(agent.query, '서울 청년수당')
+        self.assertEqual(result.status, 'answered')
+        self.assertEqual(result.api_status, 'failed')
+        self.assertTrue(result.citations)
+
     async def test_policy_details_survive_graph_response(self):
         class DetailReasoner(Reasoner):
             async def compare(self, payload):
@@ -94,12 +111,12 @@ class GraphTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('benefit', properties)
         self.assertIn('application_period', properties)
 
-    async def test_sufficient_rag_skips_agent(self):
+    async def test_sufficient_rag_with_unknown_recruitment_uses_agent_once(self):
         agent = Agent()
         result = await PolicyRagService(Retriever([DOC]), Reasoner(), agent).answer_question(request())
         self.assertEqual(result.status, 'answered')
-        self.assertEqual(agent.calls, 0)
-        self.assertEqual(result.api_status, 'not_used')
+        self.assertEqual(agent.calls, 1)
+        self.assertEqual(result.api_status, 'used')
         self.assertTrue(result.citations)
         self.assertTrue(result.needs_review)
 
@@ -148,7 +165,7 @@ class GraphTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.citations)
         self.assertTrue(result.needs_review)
         self.assertEqual(result.policies[0].status, 'needs_review')
-        self.assertEqual(agent.calls, 0)
+        self.assertEqual(agent.calls, 1)
 
     async def test_planning_document_cannot_verify_current_recruitment(self):
         class OptimisticReasoner(Reasoner):
