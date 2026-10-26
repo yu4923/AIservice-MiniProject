@@ -187,3 +187,17 @@ test('chat requires a completed profile before making a request', async () => {
   }
   assert.equal(called, false)
 })
+
+test('server failures, timeouts and invalid responses show a retry message', async () => {
+  const message = '서버에 일시적인 문제가 있습니다. 잠시 후 다시 시도해 주세요.'
+  for (const status of [500, 502, 503, 504]) {
+    globalThis.fetch = async () => ({ ok: false, status, json: async () => ({}) })
+    await assert.rejects(api.ask('필요한 서류는?', profile()), error => error.message === message && error.status === status)
+  }
+  for (const error of [new TypeError('Failed to fetch'), Object.assign(new Error('aborted'), { name: 'AbortError' })]) {
+    globalThis.fetch = async () => { throw error }
+    await assert.rejects(api.ask('필요한 서류는?', profile()), { message })
+  }
+  globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError('Invalid JSON') } })
+  await assert.rejects(api.ask('필요한 서류는?', profile()), { message })
+})

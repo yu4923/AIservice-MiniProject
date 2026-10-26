@@ -5,6 +5,7 @@ const searchBase = import.meta.env.VITE_SEARCH_API_URL || 'http://localhost:8002
 // Compatibility with existing UI callers; authentication is now an HttpOnly cookie.
 // Ending the server session requires the backend logout API, not JS cookie deletion.
 export const clearToken = () => {}
+const serverErrorMessage = '서버에 일시적인 문제가 있습니다. 잠시 후 다시 시도해 주세요.'
 async function request(base, path, body, method='POST', timeoutMs=45000) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
@@ -14,7 +15,16 @@ async function request(base, path, body, method='POST', timeoutMs=45000) {
       headers: method==='GET'?{}:{ 'Content-Type': 'application/json' },
       ...(method==='GET'?{}:{body:JSON.stringify(body)})
     })
-    const data = await response.json().catch(() => ({}))
+    if (response.status >= 500) {
+      const error = new Error(serverErrorMessage)
+      error.status = response.status
+      throw error
+    }
+    const data = await response.json().catch(() => {
+      if (response.ok) throw new Error(serverErrorMessage)
+      return {}
+    })
+    if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error(serverErrorMessage)
     if (!response.ok||data.ok===false) {
       const messages = {400:'아이디와 비밀번호를 확인해 주세요.',401:'아이디 또는 비밀번호가 올바르지 않거나 로그인이 만료됐어요.',403:'접근 권한이 없어요.',409:'이미 사용 중인 아이디예요. 다른 아이디를 입력해 주세요.',422:'입력한 내용을 다시 확인해 주세요.',429:'요청이 많아요. 잠시 후 다시 시도해 주세요.',503:'서버가 준비 중이에요. 잠시 후 다시 시도해 주세요.'}
       const codes={ID_EXISTS:messages[409],INVALID_CREDENTIALS:messages[401],VALIDATION_ERROR:messages[400]}
@@ -24,8 +34,7 @@ async function request(base, path, body, method='POST', timeoutMs=45000) {
     }
     return data
   } catch (error) {
-    if (error.name === 'AbortError') throw new Error('응답 시간이 길어지고 있어요. 잠시 후 다시 시도해 주세요.')
-    if (error instanceof TypeError) throw new Error('서버에 연결하지 못했어요. 서버 주소와 실행 상태를 확인해 주세요.')
+    if (error.name === 'AbortError' || error instanceof TypeError) throw new Error(serverErrorMessage)
     throw error
   } finally { clearTimeout(timer) }
 }
